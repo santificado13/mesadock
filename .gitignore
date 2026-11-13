@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local app data used by the demo scripts
+_demohome/
+_testhome/
+*.log
+
+# Third-party reference material (never shipped)
+docs/ref/
+
+# OS noise
+Thumbs.db
+desktop.ini
+.DS_Store

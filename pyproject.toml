@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mesadock"
+version = "1.0.0"
+description = "Turn desktop shortcuts into clean, single-icon docks."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "MesaDock contributors" }]
+keywords = ["desktop", "shortcuts", "dock", "windows", "organizer"]
+classifiers = [
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Desktop Environment",
+]
+dependencies = ["pillow>=10.0"]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+build = ["pyinstaller>=6.0"]
+
+[project.scripts]
+mesadock = "mesadock.__main__:main"
+
+[project.gui-scripts]
+mesadock-gui = "mesadock.__main__:main"
+
+[tool.setuptools.package-data]
+mesadock = ["assets/*.ico", "assets/*.png"]
+
+
+[tool.setuptools.packages.find]
+include = ["mesadock*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["error::DeprecationWarning:mesadock.*"]
