@@ -128,7 +128,7 @@ class Settings(BaseModel):
     panel_opacity: float = 0.92
     icon_size: int = 64
     show_labels: bool = False
-    archive_mode: str = "move"
+    archive_mode: str = "copy"
     animations: bool = True
     auto_start: bool = False
     start_minimized: bool = True
@@ -145,7 +145,7 @@ class Settings(BaseModel):
         if self.panel_theme not in PANEL_THEMES:
             self.panel_theme = "dark"
         if self.archive_mode not in ARCHIVE_MODES:
-            self.archive_mode = "move"
+            self.archive_mode = "copy"
         self.panel_opacity = max(0.35, min(1.0, float(self.panel_opacity)))
         self.hover_delay_ms = max(0, min(3000, int(self.hover_delay_ms)))
         self.icon_size = max(32, min(160, int(self.icon_size)))

@@ -31,7 +31,8 @@ profile with sample docks and grabs the real windows.
   Manager; panels fade in and close themselves when the pointer leaves.
 - **Archive or copy on add** — in Archive mode a shortcut dragged onto a dock is
   *moved away* from the desktop into MesaDock's storage and put back the moment
-  you remove it or uninstall. Copy mode simply links to it.
+  you remove it or uninstall. Copy mode (the default) leaves the original where
+  it is and simply links to it.
 - **Profiles** — separate dock sets for Work, Home or a screen-share profile,
   switchable from the tray menu in one click.
 - **Manager window** — a dark, three-tab control centre: dock and item editing,

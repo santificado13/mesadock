@@ -24,3 +24,6 @@ docs/ref/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Isolated build environment (build.ps1)
+.venv-build/
