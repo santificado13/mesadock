@@ -15,6 +15,7 @@ from pathlib import Path
 
 from ..win32 import shell
 from . import paths
+from .i18n import tr
 from .models import DockItem, new_id
 
 
@@ -74,12 +75,12 @@ class Archiver:
         """
         text = str(source).strip()
         if not text:
-            return ArchiveResult(False, "Empty path")
+            return ArchiveResult(False, tr("Empty path"))
         if shell.is_url(text):
             return self.add_url(text, dock_id, name=name)
         path = Path(text).expanduser()
         if not path.exists():
-            return ArchiveResult(False, "Not found: " + text)
+            return ArchiveResult(False, tr("Not found: ") + text)
         try:
             if path.is_dir():
                 item = DockItem(
@@ -89,15 +90,15 @@ class Archiver:
                     target=str(path),
                     archived_from="",
                 )
-                return ArchiveResult(True, "Folder linked in place", item)
+                return ArchiveResult(True, tr("Folder linked in place"), item)
             return self._add_file(path, dock_id, name=name)
         except OSError as exc:
-            return ArchiveResult(False, "Could not add: " + str(exc))
+            return ArchiveResult(False, tr("Could not add: ") + str(exc))
 
     def add_url(self, url: str, dock_id: str, name: str | None = None) -> ArchiveResult:
         url = (url or "").strip()
         if not url:
-            return ArchiveResult(False, "Empty url")
+            return ArchiveResult(False, tr("Empty url"))
         if not shell.is_url(url):
             url = "https://" + url
         label = name or _url_label(url)
@@ -106,9 +107,9 @@ class Archiver:
         try:
             shell.write_url_file(link_path, url)
         except OSError as exc:
-            return ArchiveResult(False, "Could not store link: " + str(exc))
+            return ArchiveResult(False, tr("Could not store link: ") + str(exc))
         item = DockItem(name=label, kind="url", path=str(link_path), target=url)
-        return ArchiveResult(True, "Link added", item)
+        return ArchiveResult(True, tr("Link added"), item)
 
     def _add_file(self, path: Path, dock_id: str, name: str | None = None) -> ArchiveResult:
         target_dir = self.items_dir(dock_id)
@@ -127,7 +128,7 @@ class Archiver:
             archived = self.archive_original(original)
             if archived is not None:
                 item.archived_from = str(original)
-        return ArchiveResult(True, "Added", item)
+        return ArchiveResult(True, tr("Added"), item)
 
     # -- archiving ---------------------------------------------------------
     def _is_on_desktop(self, path: Path) -> bool:

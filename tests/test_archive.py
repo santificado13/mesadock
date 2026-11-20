@@ -6,6 +6,7 @@ from pathlib import Path
 
 from mesadock.core import paths
 from mesadock.core.archive import Archiver, desktop_shortcuts, safe_filename, unique_path, user_desktop_dirs
+from mesadock.core.i18n import tr
 from mesadock.core.models import DockItem
 from conftest import make_file
 
@@ -99,7 +100,7 @@ def test_missing_source_is_reported(home):
     archiver = Archiver("Default", "move")
     result = archiver.add_from_path(home / "does-not-exist.lnk", "dock1")
     assert result.ok is False
-    assert "Not found" in result.message
+    assert result.message.startswith(tr("Not found: "))
 
 
 def test_folders_are_linked_in_place(home, tmp_path):

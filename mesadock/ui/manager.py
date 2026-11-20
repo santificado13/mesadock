@@ -71,7 +71,7 @@ class ManagerWindow:
         self._drag_item_id: str | None = None
 
         self.window = tk.Toplevel(app.root)
-        self.window.title("MesaDock Manager")
+        self.window.title(tr("MesaDock Manager"))
         theme.apply_window_icon(self.window)
         self.window.geometry(str(WINDOW_SIZE[0]) + "x" + str(WINDOW_SIZE[1]))
         self.window.minsize(880, 560)
@@ -183,6 +183,8 @@ class ManagerWindow:
     def _switch_lang(self, code: str) -> None:
         if code != i18n.get_lang():
             i18n.set_lang(code)
+            self.app.store.settings.language = code
+            self.app.touch()
             self.window.destroy()
             self.app.closed_manager()
             self.app.open_manager(select=self.selected_id, select_item=self.selected_item_id)
@@ -214,7 +216,7 @@ class ManagerWindow:
                 self.window.after_cancel(self._status_job)
             except tk.TclError:
                 pass
-        self._status_job = self.window.after(6000, lambda: self.set_status("Ready"))
+        self._status_job = self.window.after(6000, lambda: self.set_status(tr("Ready")))
 
     # -- main container ----------------------------------------------------
     def _build_main(self) -> None:
@@ -522,12 +524,12 @@ class ManagerWindow:
         name = _ask_string(self.window, tr("New dock"), tr("Name this dock:"))
         name = (name or "").strip()
         if not name:
-            self.set_status("Dock creation cancelled.")
+            self.set_status(tr("Dock creation cancelled."))
             return
         folder = self.app.add_dock(name, "grid")
         self.refresh_docks()
         self.select_folder(folder.id)
-        self.set_status(f"Dock \"{folder.name}\" created.")
+        self.set_status(tr("Dock \"{name}\" created.").format(name=folder.name))
 
     def _delete_dock(self) -> None:
         folder = self.app.store.folder_by_id(self.selected_id or "")
@@ -539,7 +541,7 @@ class ManagerWindow:
         self.selected_id = self.app.store.folders[0].id if self.app.store.folders else None
         self.refresh_docks()
         self.select_folder(self.selected_id)
-        self.set_status("Dock deleted")
+        self.set_status(tr("Dock deleted"))
 
     def _rename_dock(self) -> None:
         folder = self.app.store.folder_by_id(self.selected_id or "")
@@ -577,7 +579,7 @@ class ManagerWindow:
             return
         self.app.set_dock_icon(folder.id, path)
         self._refresh_icon()
-        self.set_status("Icon updated")
+        self.set_status(tr("Icon updated"))
 
     def _add_files(self) -> None:
         folder = self.app.store.folder_by_id(self.selected_id or "")
@@ -586,7 +588,7 @@ class ManagerWindow:
         files = filedialog.askopenfilenames(
             parent=self.window,
             title=tr("Add shortcuts and files"),
-            filetypes=[("Shortcuts", "*.lnk *.url"), ("All files", "*.*")],
+            filetypes=[(tr("Shortcuts"), "*.lnk *.url"), (tr("All files"), "*.*")],
         )
         if not files:
             return
@@ -599,15 +601,15 @@ class ManagerWindow:
             return
         shortcuts = [str(path) for path in archive_mod.desktop_shortcuts()]
         if not shortcuts:
-            self.set_status("No shortcuts found on the desktop", error=True)
+            self.set_status(tr("No shortcuts found on the desktop"), error=True)
             return
         if self.app.store.settings.archive_mode == "move":
             if not messagebox.askyesno(
                 tr("Add desktop shortcuts"),
-                f"Add {len(shortcuts)} desktop shortcut(s) to \"{folder.name}\"?",
+                tr("Add {count} desktop shortcut(s) to \"{name}\"?").format(count=len(shortcuts), name=folder.name),
                 parent=self.window,
             ):
-                self.set_status("Cancelled. Nothing was moved.")
+                self.set_status(tr("Cancelled. Nothing was moved."))
                 return
         added = self.app.add_paths_to_dock(folder.id, shortcuts)
         self._after_items_changed(added)
@@ -666,7 +668,7 @@ class ManagerWindow:
             return
         self.app.remove_item(folder.id, item.id, restore=True)
         self._after_items_changed(0)
-        self.set_status("Item removed; original restored if it was archived")
+        self.set_status(tr("Item removed; original restored if it was archived"))
 
     def _on_item_selected(self, _event=None) -> None:
         selection = self.items.selection()
@@ -692,7 +694,7 @@ class ManagerWindow:
         self.profile_var.set(self.app.store.active_profile.name)
         self.selected_id = None
         self.refresh_docks()
-        self.set_status(f"Profile {name} created")
+        self.set_status(tr("Profile {name} created").format(name=name))
 
     # -- settings tab ------------------------------------------------------
     def _build_settings_tab(self) -> None:
@@ -865,11 +867,11 @@ class ManagerWindow:
         try:
             os.startfile(str(paths.home_dir()))
         except OSError:
-            self.set_status("Could not open " + str(paths.home_dir()), error=True)
+            self.set_status(tr("Could not open ") + str(paths.home_dir()), error=True)
 
     def _restore_archived(self) -> None:
         restored = self.app.emergency_restore_all()
-        self.set_status("Restored " + str(restored) + " archived item(s)")
+        self.set_status(tr("Restored {count} archived item(s)").format(count=restored))
 
     # -- window ------------------------------------------------------------
     def show(self) -> None:

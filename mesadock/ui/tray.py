@@ -11,6 +11,7 @@ import ctypes
 import tkinter as tk
 from ctypes import wintypes
 
+from ..core.i18n import tr
 from . import theme
 
 WM_USER = 0x0400
@@ -317,17 +318,17 @@ class TrayIcon:
             menu = tk.Menu(self.app.root, tearoff=0, bg=theme.BG_ELEVATED, fg=theme.TEXT,
                            activebackground=theme.ACCENT_SOFT, activeforeground=theme.TEXT,
                            borderwidth=0, font=theme.font(9))
-            menu.add_command(label="Open Manager", command=self.app.open_manager)
-            menu.add_command(label="New dock", command=self.app.prompt_new_dock)
+            menu.add_command(label=tr("Open Manager"), command=self.app.open_manager)
+            menu.add_command(label=tr("New dock"), command=self.app.prompt_new_dock)
             profiles = tk.Menu(menu, tearoff=0, bg=theme.BG_ELEVATED, fg=theme.TEXT,
                                activebackground=theme.ACCENT_SOFT, activeforeground=theme.TEXT,
                                borderwidth=0, font=theme.font(9))
             for index, profile in enumerate(self.app.store.profiles):
                 profiles.add_command(label=profile.name,
                                      command=lambda i=index: self.app.switch_profile(i))
-            menu.add_cascade(label="Profile", menu=profiles)
+            menu.add_cascade(label=tr("Profile"), menu=profiles)
             menu.add_separator()
-            menu.add_command(label="Quit MesaDock", command=self.app.quit)
+            menu.add_command(label=tr("Quit MesaDock"), command=self.app.quit)
             x, y = self.app.root.winfo_pointerxy()
             menu.tk_popup(x, y)
         except tk.TclError:

@@ -135,6 +135,7 @@ class Settings(BaseModel):
     snap_to_grid: bool = True
     attach_to_desktop: bool = True
     update_check: bool = False
+    language: str = ""  # "" follows Windows; otherwise "pt" or "en"
 
     @model_validator(mode='after')
     def validate_settings(self) -> 'Settings':
@@ -144,6 +145,8 @@ class Settings(BaseModel):
             self.panel_background = "translucent"
         if self.panel_theme not in PANEL_THEMES:
             self.panel_theme = "dark"
+        if self.language not in ("", "pt", "en"):
+            self.language = ""
         if self.archive_mode not in ARCHIVE_MODES:
             self.archive_mode = "copy"
         self.panel_opacity = max(0.35, min(1.0, float(self.panel_opacity)))

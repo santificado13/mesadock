@@ -11,6 +11,7 @@ from pathlib import Path
 from ..core import archive as archive_mod
 from ..core import layout as layout_mod
 from ..core import paths
+from ..core.i18n import set_lang, tr
 from ..core.models import DockFolder, DockItem, Profile
 from ..core.store import Store
 from ..win32 import desktop, monitors, shell
@@ -26,6 +27,8 @@ class MesaDockApp:
     def __init__(self, store: Store | None = None, show_manager: bool = False) -> None:
         paths.ensure_dirs()
         self.store = store or Store().load()
+        if self.store.settings.language:
+            set_lang(self.store.settings.language)
         self.root = tk.Tk()
         self.root.withdraw()
         self.root.title("MesaDock")
@@ -105,7 +108,7 @@ class MesaDockApp:
             self.open_manager()
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         self.root.bind_all("<Control-Shift-M>", lambda _e: self.open_manager())
-        self.root.bind_all("<Control-Shift-D>", lambda _e: self.add_dock("New dock", "grid"))
+        self.root.bind_all("<Control-Shift-D>", lambda _e: self.add_dock(tr("New dock"), "grid"))
         # Escape has to reach the app level, not just the panel widget: with a ring
         # or fan panel the window sits on top of its own dock, so there was no way
         # to dismiss it and get back to the dock icon.
@@ -211,7 +214,7 @@ class MesaDockApp:
         try:
             self.store.save()
         except Exception as exc:  # pragma: no cover - reported to the user
-            self.notify("Could not save: " + str(exc), error=True)
+            self.notify(tr("Could not save: ") + str(exc), error=True)
 
     # -- docks -------------------------------------------------------------
     def sync_docks(self) -> None:
@@ -237,7 +240,7 @@ class MesaDockApp:
         """Ask for a name, then create the dock (used by the tray menu)."""
         from tkinter import simpledialog
 
-        name = simpledialog.askstring("New dock", "Name this dock:", parent=self.root) or ""
+        name = simpledialog.askstring(tr("New dock"), tr("Name this dock:"), parent=self.root) or ""
         name = name.strip()
         if not name:
             return None
@@ -343,14 +346,14 @@ class MesaDockApp:
                 panel.rebuild()
                 logging.getLogger("mesadock").info("add: panel rebuilt")
             logging.getLogger("mesadock").info("add: scheduling notify (deferred)")
-            _msg = str(added) + (" item added" if added == 1 else " items added")
+            _msg = str(added) + (tr(" item added") if added == 1 else tr(" items added"))
             try:
                 self.root.after(0, lambda m=_msg: self.notify(m))
             except tk.TclError:
                 self.notify(_msg)
             logging.getLogger("mesadock").info("add: add_paths_to_dock done")
         else:
-            _msg = "Nothing could be added"
+            _msg = tr("Nothing could be added")
             try:
                 self.root.after(0, lambda: self.notify(_msg, error=True))
             except tk.TclError:
@@ -364,7 +367,7 @@ class MesaDockApp:
         archiver = archive_mod.Archiver(self.store.active_profile.name, self.store.settings.archive_mode)
         result = archiver.add_url(url, folder.id, name=name or None)
         if not result.ok or result.item is None:
-            self.notify(result.message or "Could not add link", error=True)
+            self.notify(result.message or tr("Could not add link"), error=True)
             return False
         folder.add_item(result.item)
         self.touch()
@@ -404,7 +407,7 @@ class MesaDockApp:
         else:
             ok = shell.launch(path)
         if not ok:
-            self.notify("Could not open " + (item.name or path), error=True)
+            self.notify(tr("Could not open ") + (item.name or path), error=True)
 
     # -- panels ------------------------------------------------------------
     def open_panel(self, folder: DockFolder, force: bool = False) -> None:
@@ -648,16 +651,16 @@ class MesaDockApp:
         menu = tk.Menu(self.root, tearoff=0, bg=theme.BG_ELEVATED, fg=theme.TEXT,
                        activebackground=theme.ACCENT_SOFT, activeforeground=theme.TEXT,
                        borderwidth=0, font=theme.font(9))
-        menu.add_command(label="Open", command=lambda: self.toggle_panel(folder))
-        menu.add_command(label="Open Manager", command=lambda: self.open_manager(select=folder.id))
+        menu.add_command(label=tr("Open"), command=lambda: self.toggle_panel(folder))
+        menu.add_command(label=tr("Open Manager"), command=lambda: self.open_manager(select=folder.id))
         menu.add_separator()
         for style, label in (("grid", "Grid"), ("column", "Column"), ("row", "Row"), ("fan", "Fan"), ("ring", "Ring")):
-            menu.add_command(label="Style: " + label, command=lambda s=style: self.set_dock_style(folder.id, s))
+            menu.add_command(label=tr("Style: ") + tr(label), command=lambda s=style: self.set_dock_style(folder.id, s))
         menu.add_separator()
-        menu.add_command(label="Add shortcuts...", command=lambda: self.add_items_via_dialog(folder.id))
-        menu.add_command(label="Add web link...", command=lambda: self.add_link_via_dialog(folder.id))
+        menu.add_command(label=tr("Add shortcuts..."), command=lambda: self.add_items_via_dialog(folder.id))
+        menu.add_command(label=tr("Add web link") + "...", command=lambda: self.add_link_via_dialog(folder.id))
         menu.add_separator()
-        menu.add_command(label="Remove dock (restores items)", command=lambda: self.confirm_remove_dock(folder.id))
+        menu.add_command(label=tr("Remove dock (restores items)"), command=lambda: self.confirm_remove_dock(folder.id))
         try:
             menu.tk_popup(x, y)
         finally:
@@ -669,20 +672,20 @@ class MesaDockApp:
         folder = self.store.folder_by_id(folder_id)
         if folder is None:
             return
-        if messagebox.askyesno("Remove dock", "Remove \"" + folder.name + "\"?\n\nItems are put back on the desktop."):
+        if messagebox.askyesno(tr("Remove dock"), tr("Remove \"{name}\"?\n\nItems are put back on the desktop.").format(name=folder.name)):
             self.remove_dock(folder_id, restore=True)
 
     def add_items_via_dialog(self, folder_id: str) -> None:
         from tkinter import filedialog
 
-        files = filedialog.askopenfilenames(title="Add shortcuts and files")
+        files = filedialog.askopenfilenames(title=tr("Add shortcuts and files"))
         if files:
             self.add_paths_to_dock(folder_id, list(files))
 
     def add_link_via_dialog(self, folder_id: str) -> None:
         from tkinter import simpledialog
 
-        url = simpledialog.askstring("Add web link", "Address:", parent=self.root)
+        url = simpledialog.askstring(tr("Add web link"), tr("Address:"), parent=self.root)
         if url:
             self.add_url_to_dock(folder_id, url)
 
@@ -690,14 +693,14 @@ class MesaDockApp:
         menu = tk.Menu(self.root, tearoff=0, bg=theme.BG_ELEVATED, fg=theme.TEXT,
                        activebackground=theme.ACCENT_SOFT, activeforeground=theme.TEXT,
                        borderwidth=0, font=theme.font(9))
-        menu.add_command(label="Open", command=lambda: self.launch_item(folder, item))
+        menu.add_command(label=tr("Open"), command=lambda: self.launch_item(folder, item))
         menu.add_separator()
-        menu.add_command(label="Remove from dock (puts it back on the desktop)",
+        menu.add_command(label=tr("Remove from dock (puts it back on the desktop)"),
                          command=lambda: self.confirm_remove(folder, item, restore=True))
-        menu.add_command(label="Remove from dock (leaves the original alone)",
+        menu.add_command(label=tr("Remove from dock (leaves the original alone)"),
                          command=lambda: self.confirm_remove(folder, item, restore=False))
         menu.add_separator()
-        menu.add_command(label="Manage this dock...",
+        menu.add_command(label=tr("Manage this dock..."),
                          command=lambda: self.open_manager(select=folder.id, select_item=item.id))
         try:
             menu.tk_popup(x, y)
@@ -713,12 +716,12 @@ class MesaDockApp:
         from tkinter import messagebox
 
         if restore:
-            detail = "The shortcut goes back to the desktop."
+            detail = tr("The shortcut goes back to the desktop.")
         else:
-            detail = "The shortcut itself is not touched, it just leaves the dock."
+            detail = tr("The shortcut itself is not touched, it just leaves the dock.")
         if not messagebox.askyesno(
-            "Remove from dock",
-            "Remove \"" + item.name + "\" from " + folder.name + "?\n\n" + detail,
+            tr("Remove from dock"),
+            tr("Remove \"{item}\" from {dock}?").format(item=item.name, dock=folder.name) + "\n\n" + detail,
             parent=self.root,
         ):
             return

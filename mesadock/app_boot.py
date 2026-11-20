@@ -112,7 +112,9 @@ def run_app(show_manager: bool = False) -> int:
         try:
             from tkinter import messagebox
 
-            messagebox.showerror("MesaDock", "MesaDock stopped unexpectedly.\n\nSee " + str(paths.log_file()))
+            from .core.i18n import tr
+
+            messagebox.showerror("MesaDock", tr("MesaDock stopped unexpectedly.\n\nSee ") + str(paths.log_file()))
         except Exception:
             pass
         return 1
@@ -204,7 +206,12 @@ def notify_existing_instance() -> bool:
         _declare_user32_signatures()
 
         user32 = ctypes.windll.user32
-        manager = user32.FindWindowW(None, "MesaDock Manager")
+        from .core import i18n
+
+        # The title is translated, and the running instance may use either language.
+        manager = 0
+        for title in ("MesaDock Manager", i18n._PT.get("MesaDock Manager", "")):
+            manager = manager or user32.FindWindowW(None, title)
         if manager:
             user32.ShowWindow(manager, 9)  # SW_RESTORE
             user32.SetForegroundWindow(manager)
