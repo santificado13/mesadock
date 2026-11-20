@@ -1,8 +1,9 @@
 """JSON persistence for profiles, docks and settings.
 
 A single store.json holds every profile. Writes are atomic (temp file plus
-os.replace) and the previous version is kept as store.json.bak, so a crash can
-never leave a half-written profile behind.
+os.replace), so a crash can never leave a half-written profile behind. After
+every successful save store.json.bak mirrors it, so a store.json corrupted later
+(disk error, manual edit) falls back to the last good save without losing it.
 """
 from __future__ import annotations
 

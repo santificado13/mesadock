@@ -66,9 +66,13 @@ def _mini_tiles(draw: ImageDraw.ImageDraw, size: int, count: int, accent: str) -
         draw.rounded_rectangle((x, y, x + tile, y + tile), radius=max(2, tile // 4), outline=(255, 255, 255, 90))
 
 
-def dock_icon(style: str, size: int = 64, accent: str | None = None, item_count: int = 3) -> Image.Image:
-    """Return the high-resolution logo artwork without dark overlays."""
-    return _background(size, accent or "blue")
+def dock_icon(style: str, size: int = 64, accent: str | None = None, item_count: int = 0) -> Image.Image:
+    """Return the logo artwork, with a count badge in the corner when ``item_count`` > 0."""
+    colour = accent or STYLE_COLOURS.get(style, "blue")
+    image = _background(size, colour)
+    if item_count > 0:
+        image = Image.alpha_composite(image, self_badge(size, item_count, colour))
+    return image
 
 
 def self_badge(size: int, count: int, accent: str) -> Image.Image:

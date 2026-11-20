@@ -573,18 +573,21 @@ def icon_data_url(path: str, size: int = 64) -> str:
 def _installed_executable() -> Path | None:
     """Path of the packaged MesaDock.exe when this machine has one installed.
 
-    Checks both the new standard location and the legacy AppData location.
+    Checks ``MESADOCK_EXE`` (for a custom install folder) first, then the
+    standard per-user location under LOCALAPPDATA.
     """
-    # New standard location (priority)
-    new_path = Path(r"C:\Users\franc\PROGRAMAS\MesaDock\MesaDock.exe")
-    if new_path.is_file():
-        return new_path
-    # Legacy location
-    candidate = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "MesaDock" / "MesaDock.exe"
-    try:
-        return candidate if candidate.is_file() else None
-    except OSError:
-        return None
+    candidates = []
+    override = os.environ.get("MESADOCK_EXE", "").strip()
+    if override:
+        candidates.append(Path(override))
+    candidates.append(Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "MesaDock" / "MesaDock.exe")
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+    return None
 
 def autostart_command() -> str:
     """Command line written to the Run key to start MesaDock at logon."""
