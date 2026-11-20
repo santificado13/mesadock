@@ -13,6 +13,9 @@ from .images import ImageCache, folder_source, prepare_canvas
 
 ICON_PAD = 8
 DRAG_THRESHOLD = 5
+# Label pill: close to theme.TRANSPARENT_KEY so its anti-aliased edge stays clean.
+LABEL_PILL = "#121722"
+LABEL_PILL_HOVER = "#1b2333"
 
 
 class DockWindow:
@@ -208,24 +211,32 @@ class DockWindow:
                 canvas.create_image(width - inset - 4, inset + 4, image=badge, anchor="ne")
 
         if label:
+            # The name sits on a dark pill. The window is see-through by colour key
+            # (a near-black), so text drawn straight on it anti-aliased into that
+            # key and showed ragged dark fringes on light wallpapers. A pill in
+            # almost the key colour keeps its edges clean, and the text is smoothed
+            # against a solid fill.
             font = self._label_font()
             baseline = icon_height + label_height / 2
-            # Soft shadow around label for readability on both light and dark backgrounds
-            for ox, oy in ((1, 1), (0, 1), (-1, 0), (1, 0)):
-                canvas.create_text(
-                    icon_x + ox, baseline + oy,
-                    text=label, fill="#05070b", font=font,
-                    width=width - 4,
-                )
-            canvas.create_text(
-                icon_x, baseline,
-                text=label, fill=theme.ACCENT if self._hover else "#f0f4fc",
-                font=font, width=width - 4,
+            try:
+                text_w = tkfont.Font(font=font, root=self.app.root).measure(label)
+            except (tk.TclError, AttributeError):
+                text_w = len(label) * 7
+            pad_x = 8
+            pill_h = label_height - 4
+            half_w = min(width - 2, text_w + pad_x * 2) / 2
+            theme.rounded_rect(
+                canvas, icon_x - half_w, baseline - pill_h / 2,
+                icon_x + half_w, baseline + pill_h / 2, radius=pill_h / 2,
+                fill=LABEL_PILL_HOVER if self._hover else LABEL_PILL,
+                outline=theme.blend(LABEL_PILL, theme.ACCENT, 0.6) if self._hover else "",
+                width=1,
             )
+            canvas.create_text(icon_x, baseline, text=label, fill="#f5f7fb", font=font)
         self._resize_window(width, icon_height + label_height)
 
     def _label_font(self):
-        return theme.font(9, "bold")
+        return ("Segoe UI Semibold", 9)
 
     def _label_text(self) -> str:
         name = (self.folder.name or "").strip()
@@ -246,7 +257,7 @@ class DockWindow:
 
     def _label_space(self) -> int:
         """Pixels available for the name inside the dock window."""
-        return max(24, self._dock_width() - 14)
+        return max(24, self._dock_width() - 18)
 
     def _label_width(self) -> int:
         name = (self.folder.name or "").strip()
@@ -257,14 +268,14 @@ class DockWindow:
             measure = tkfont.Font(font=self._label_font(), root=self.app.root).measure
         except (tk.TclError, AttributeError):
             return size
-        # Generous breathing room (+16px) so labels like "MEU_HUB_WHATSAPP" never hit the edges
-        return int(min(max(size, measure(name) + 16), size * 2.8))
+        # Text + pill padding (2 x 8px) + a little margin, so names are not cut
+        return int(min(max(size, measure(name) + 22), size * 2.8))
 
     def _dock_width(self) -> int:
         return max(self._pixel_size(), self._label_width())
 
     def _label_height(self) -> int:
-        return int(18 * (getattr(self.app.monitor_for(self.position()), "scale", 1.0) or 1.0))
+        return int(22 * (getattr(self.app.monitor_for(self.position()), "scale", 1.0) or 1.0))
 
     def _resize_window(self, width: int, height: int) -> None:
         try:
