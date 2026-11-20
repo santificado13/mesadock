@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,40 @@ os.environ.setdefault("MESADOCK_NO_DESKTOP", "1")
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+def _retry_flaky_tk_init() -> None:
+    """Retry Tk() when Tcl fails to initialise with "tcl_findLibrary".
+
+    On GitHub's Windows runners, creating many Tk roots in one test run now and
+    then fails inside Tk's own startup script with 'invalid command name
+    "tcl_findLibrary"'. It is an environment race, not a MesaDock bug (the app
+    creates a single root), so the tests retry that one error and nothing else.
+    """
+    try:
+        import tkinter
+    except ImportError:
+        return
+    if getattr(tkinter.Tk, "_mesadock_retry", False):
+        return
+
+    class _RetryingTk(tkinter.Tk):
+        _mesadock_retry = True
+
+        def __init__(self, *args, **kwargs):
+            for attempt in range(3):
+                try:
+                    super().__init__(*args, **kwargs)
+                    return
+                except tkinter.TclError as exc:
+                    if "tcl_findLibrary" not in str(exc) or attempt == 2:
+                        raise
+                    time.sleep(0.3)
+
+    tkinter.Tk = _RetryingTk
+
+
+_retry_flaky_tk_init()
 
 
 @pytest.fixture()
