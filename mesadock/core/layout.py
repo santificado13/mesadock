@@ -159,7 +159,6 @@ def _ring_radius(
     # read as cramped even when the rectangles technically did not touch.
     chord = diagonal * 1.08 + max(0, int(gap)) + 6
     return max(icon * 1.35, chord / (2 * math.sin(math.pi / count)))
-    return max(icon * 1.25, chord / (2 * math.sin(math.pi / count)))
 
 
 def build_layout(

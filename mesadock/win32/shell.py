@@ -341,6 +341,16 @@ def _imagelist_icon(image_list: int, index: int, flags: int) -> int:
         return 0
 
 
+def _com_release(pointer: int) -> None:
+    """IUnknown::Release (vtable slot 2) for a COM interface pointer."""
+    try:
+        vtable = ctypes.cast(pointer, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+        release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(vtable[2])
+        release(ctypes.c_void_p(pointer))
+    except (AttributeError, OSError, TypeError, ValueError):
+        pass
+
+
 def extract_icon_jumbo(path: str):
     """Best available icon for a file, at 256px when the shell provides one.
 
@@ -402,7 +412,10 @@ def extract_icon_jumbo(path: str):
             return None
         if not image_list.value:
             return None
-        hicon = _imagelist_icon(image_list.value, info.iIcon, ILD_TRANSPARENT)
+        try:
+            hicon = _imagelist_icon(image_list.value, info.iIcon, ILD_TRANSPARENT)
+        finally:
+            _com_release(image_list.value)
         if not hicon:
             return None
         try:
@@ -637,34 +650,3 @@ def set_autostart(enabled: bool) -> bool:
         return autostart_enabled()
     except (OSError, ImportError):
         return autostart_enabled()
-
-
-# --- clipboard ------------------------------------------------------------
-def clipboard_paths() -> list[str]:
-    """File paths currently on the clipboard (CF_HDROP)."""
-    if not is_windows():
-        return []
-    try:
-        user32 = ctypes.windll.user32
-        shell32 = ctypes.windll.shell32
-        CF_HDROP = 15
-        if not user32.OpenClipboard(None):
-            return []
-        try:
-            if not user32.IsClipboardFormatAvailable(CF_HDROP):
-                return []
-            handle = user32.GetClipboardData(CF_HDROP)
-            if not handle:
-                return []
-            count = shell32.DragQueryFileW(handle, 0xFFFFFFFF, None, 0)
-            paths = []
-            for index in range(count):
-                length = shell32.DragQueryFileW(handle, index, None, 0)
-                buffer = ctypes.create_unicode_buffer(length + 2)
-                shell32.DragQueryFileW(handle, index, buffer, length + 2)
-                paths.append(buffer.value)
-            return paths
-        finally:
-            user32.CloseClipboard()
-    except (AttributeError, OSError):
-        return []

@@ -15,7 +15,7 @@ if (-not (Get-Command pyinstaller -ErrorAction SilentlyContinue)) {
 
 $root = $PSScriptRoot
 $assets = Join-Path $root "mesadock\assets"
-$icon = Join-Path $assets "mesadock_new.ico"
+$icon = Join-Path $assets "mesadock.ico"
 # path avoids the "Access denied" rmtree failure that --clean can hit.
 $workPath = Join-Path $root ("build\wp_" + (Get-Date -Format "yyyyMMdd_HHmmss"))
 

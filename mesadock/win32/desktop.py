@@ -443,7 +443,6 @@ def apply_desktop_window_styles(hwnd: int, click_through: bool = False) -> bool:
             style |= WS_EX_TRANSPARENT | WS_EX_LAYERED
         user32.SetWindowLongW(int(target), GWL_EXSTYLE, style)
         return True
-        return True
     except _SHELL_ERRORS:
         return False
 

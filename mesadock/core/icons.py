@@ -37,7 +37,7 @@ def _background(size: int, accent: str) -> Image.Image:
     """Use the high-resolution logo/dock artwork directly."""
     try:
         from .paths import asset
-        path = asset("mesadock_new.png")
+        path = asset("logo.png")
         if path.exists():
             with Image.open(path) as img:
                 return img.convert("RGBA").resize((size, size), Image.LANCZOS)

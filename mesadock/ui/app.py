@@ -173,10 +173,6 @@ class MesaDockApp:
         except Exception:
             return ()
 
-
-        self.start()
-        self.root.mainloop()
-
     def quit(self) -> None:
         self._running = False
         try:
