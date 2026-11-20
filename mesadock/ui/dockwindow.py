@@ -48,6 +48,7 @@ class DockWindow:
         self._bind()
         self._draw()
         self.app.root.after(30, self._place_on_desktop)
+        self.app.root.after(80, self._ensure_on_desktop)
         self.app.root.after(900, self._watch_desktop_layer)
 
     # -- geometry ----------------------------------------------------------
@@ -213,10 +214,10 @@ class DockWindow:
         icon_height = size
         if self._drop_highlight:
             theme.rounded_rect(canvas, 1, 1, width - 1, size - 1, radius=14,
-                               fill=theme.blend("#0d1016", "#34d399", 0.28), outline="#34d399", width=2)
+                               fill="#1a1e29", outline="", width=0)
         elif self._hover:
             theme.rounded_rect(canvas, 1, 1, width - 1, size - 1, radius=14,
-                               fill=theme.blend("#0d1016", "#5ea2ff", 0.16), outline="#3d5170", width=1)
+                               fill="#1a1e29", outline="", width=0)
         cache: ImageCache = self.app.images
         icon_size = size - ICON_PAD * 2
         source = folder_source(self.folder)

@@ -739,3 +739,4 @@ def _ask_string(parent, title: str, prompt: str) -> str:
     from tkinter import simpledialog
 
     return simpledialog.askstring(title, prompt, parent=parent) or ""
+

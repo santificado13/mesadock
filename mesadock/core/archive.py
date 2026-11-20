@@ -1,4 +1,4 @@
-"""Adding, archiving and restoring desktop items.
+﻿"""Adding, archiving and restoring desktop items.
 
 MesaDock never deletes anything. When an item is added in Move mode its
 original is tucked into archived/<profile>/ and MesaDock keeps its own copy in
@@ -7,6 +7,7 @@ Removing an item (or uninstalling) puts the original back where it came from.
 """
 from __future__ import annotations
 
+import functools
 import shutil
 import time
 from dataclasses import dataclass

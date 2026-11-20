@@ -77,6 +77,21 @@ class ImageCache:
             # 32px icon and enlarging it was what made panel icons look blurry.
             high_res = shell.extract_icon_jumbo(path)
             if high_res is not None:
+                bbox = high_res.getbbox()
+                if bbox and (bbox[2] - bbox[0] < 120 or bbox[3] - bbox[1] < 120):
+                    payload = shell.extract_icon_png(path, size)
+                    if payload:
+                        import io
+                        try:
+                            with Image.open(io.BytesIO(payload)) as opened:
+                                return opened.convert("RGBA").resize((size, size), Image.LANCZOS)
+                        except (OSError, ValueError):
+                            pass
+                    try:
+                        cropped = high_res.crop(bbox)
+                        return cropped.convert("RGBA").resize((size, size), Image.LANCZOS)
+                    except (OSError, ValueError):
+                        pass
                 try:
                     return high_res.convert("RGBA").resize((size, size), Image.LANCZOS)
                 except (OSError, ValueError):
@@ -110,17 +125,22 @@ def item_source(item) -> str:
         return item.icon
     if getattr(item, "kind", "") == "url":
         return "glyph:grid"
-    if getattr(item, "path", "") and Path(item.path).exists():
-        return item.path
+    # Prefer target executable over .lnk to avoid Windows shortcut arrow overlay
     if getattr(item, "target", "") and Path(item.target).exists():
         return item.target
+    if getattr(item, "path", "") and Path(item.path).exists():
+        return item.path
     return getattr(item, "target", "") or getattr(item, "path", "")
 
 
 def folder_source(folder) -> str:
     if getattr(folder, "icon", ""):
-        return folder.icon
-    return "glyph:" + (folder.style or "grid")
+        try:
+            if Path(folder.icon).exists():
+                return folder.icon
+        except Exception:
+            pass
+    return "glyph:" + (getattr(folder, "style", "") or "grid")
 
 
 def prepare_canvas(window: tk.Misc, transparent_key: str) -> None:

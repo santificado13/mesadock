@@ -1,4 +1,4 @@
-"""The expanding panel that a dock fans out into.
+﻿"""The expanding panel that a dock fans out into.
 
 One Toplevel per open panel, drawn on a single canvas: a rounded translucent
 card with the dock's items laid out by core.layout. Items highlight on hover and
@@ -12,7 +12,94 @@ import tkinter as tk
 import logging
 from typing import Callable
 
-from PIL import ImageTk
+from PIL import Image, ImageDraw, ImageFilter, ImageTk
+
+_DISC_CACHE: dict[tuple[int, int], ImageTk.PhotoImage] = {}
+
+
+def get_sci_fi_disc(width: int, height: int) -> ImageTk.PhotoImage:
+    key = (width, height)
+    if key in _DISC_CACHE:
+        return _DISC_CACHE[key]
+
+    S = 2
+    sw, sh = width * S, height * S
+    im = Image.new("RGBA", (sw, sh), (0, 0, 0, 0))
+
+    cx, cy = sw // 2, sh // 2
+    margin = 12 * S
+    radius = (min(sw, sh) // 2) - margin
+
+    # 1. Ambient Glow (Deep Cyan/Blue Bloom)
+    glow = Image.new("RGBA", (sw, sh), (0, 0, 0, 0))
+    gdraw = ImageDraw.Draw(glow)
+    gdraw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), outline=(0, 229, 255, 120), width=8 * S)
+    glow = glow.filter(ImageFilter.GaussianBlur(10 * S))
+    im = Image.alpha_composite(im, glow)
+
+    draw = ImageDraw.Draw(im)
+
+    # 2. Dark Glass Base Disc (Subtle Radial Gradient)
+    for i in range(24, 0, -1):
+        r = int(radius * (i / 24))
+        factor = i / 24
+        c = (
+            int(3 + (11 - 3) * (1 - factor ** 1.5)),
+            int(7 + (23 - 7) * (1 - factor ** 1.5)),
+            int(16 + (40 - 16) * (1 - factor ** 1.5)),
+            255,
+        )
+        draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=c)
+
+    # 3. Outer Neon Bezel / Rim
+    draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), outline=(0, 229, 255, 240), width=2 * S)
+
+    # 4. Outer Cyberpunk Chassis Brackets (Heavy glowing curved arcs with node dots)
+    if radius > 30 * S:
+        arc_layer = Image.new("RGBA", (sw, sh), (0, 0, 0, 0))
+        adraw = ImageDraw.Draw(arc_layer)
+        bracket_r = radius - 4 * S
+        for start_deg in (15, 105, 195, 285):
+            adraw.arc((cx - bracket_r, cy - bracket_r, cx + bracket_r, cy + bracket_r),
+                      start=start_deg, end=start_deg + 60, fill=(0, 240, 255, 255), width=3 * S)
+            rad_start = math.radians(start_deg)
+            dot_x = cx + bracket_r * math.cos(rad_start)
+            dot_y = cy + bracket_r * math.sin(rad_start)
+            adraw.ellipse((dot_x - 3 * S, dot_y - 3 * S, dot_x + 3 * S, dot_y + 3 * S), fill=(255, 255, 255, 255))
+
+        im = Image.alpha_composite(im, arc_layer)
+        draw = ImageDraw.Draw(im)
+
+    # 5. Orbital Ring Track (subtle sleek guide line)
+    track_r = int(radius * 0.65)
+    if track_r > 5 * S:
+        draw.ellipse((cx - track_r, cy - track_r, cx + track_r, cy + track_r), outline=(14, 52, 78, 160), width=1 * S)
+
+    # 6. Central Arc Reactor Core (Futuristic energy core)
+    if radius > 30 * S:
+        core_r = int(radius * 0.28)
+        draw.ellipse((cx - core_r, cy - core_r, cx + core_r, cy + core_r), outline=(10, 45, 68, 200), width=2 * S)
+
+        inner_core_r = int(radius * 0.18)
+        draw.ellipse((cx - inner_core_r, cy - inner_core_r, cx + inner_core_r, cy + inner_core_r),
+                     fill=(4, 14, 26, 255), outline=(0, 210, 255, 220), width=2 * S)
+
+        for seg_start in (30, 150, 270):
+            draw.arc((cx - inner_core_r + 3 * S, cy - inner_core_r + 3 * S,
+                      cx + inner_core_r - 3 * S, cy + inner_core_r - 3 * S),
+                     start=seg_start, end=seg_start + 65, fill=(0, 240, 255, 255), width=2 * S)
+
+        center_glow_r = 7 * S
+        draw.ellipse((cx - center_glow_r, cy - center_glow_r, cx + center_glow_r, cy + center_glow_r),
+                     fill=(0, 240, 255, 255))
+        center_bright_r = 3 * S
+        draw.ellipse((cx - center_bright_r, cy - center_bright_r, cx + center_bright_r, cy + center_bright_r),
+                     fill=(255, 255, 255, 255))
+
+    final = im.resize((width, height), Image.LANCZOS)
+    photo = ImageTk.PhotoImage(final)
+    _DISC_CACHE[key] = photo
+    return photo
 
 from ..core import layout as layout_mod
 from ..core.models import DockFolder, DockItem
@@ -217,43 +304,31 @@ class Panel:
         canvas = self.canvas
         canvas.delete("all")
         width, height = self.layout.width, self.layout.height
-        # Ring and Fan radiate from the dock, so a rounded card behind them looked
-        # like a box the items had fallen into. They get a soft disc instead, which
-        # is what makes the radiating styles read as circular.
+        
         is_radial = self.layout.style in ("ring", "fan")
+        
         if is_radial:
             self._draw_disc(canvas, width, height, bg, border)
-            if self.layout.cells:
-                hub_x, hub_y, _orbit, _cw, _ch, hub_radius = self._ring_geometry()
-                if hub_radius:
-                    self._draw_hub(canvas, hub_x, hub_y, hub_radius, text_colour)
+            hub_x, hub_y, _orbit, _cw, _ch, hub_radius = self._ring_geometry()
+            if hub_radius:
+                self._draw_hub(canvas, hub_x, hub_y, hub_radius, text_colour)
         else:
-            # Layered chrome: outer shadow -> body -> inner hairline. A single flat
-            # rounded rectangle read as a grey box; the extra passes give it depth.
+            # Clean dark card for grid / column / row
             for step, alpha in ((4, "#05070c"), (2, border)):
-                theme.rounded_rect(canvas, 1 - step + 1, 1 - step + 1,
-                                   width - 1 + step, height - 1 + step,
-                                   radius=16 + step, fill=alpha, outline="")
-            theme.rounded_rect(canvas, 1, 1, width - 1, height - 1, radius=16,
-                               fill=bg, outline=border, width=1)
-            theme.rounded_rect(canvas, 2, 2, width - 2, height - 2, radius=15,
-                               fill="", outline=theme.lighten(bg, 0.10), width=1)
-            # The cards were flat slabs next to the dial. A dotted hairline just
-            # inside the edge gives them the same instrument language: one more
-            # rectangle, animated by its dash phase rather than by redrawing.
-            canvas.create_rectangle(7, 7, width - 7, height - 7,
-                                    outline=CARD_MARKS, width=1,
-                                    dash=(1, 7), tags=("chrome", "marks"))
+                theme.rounded_rect(canvas, 1 - step + 1, 1 - step + 1, width - 1 + step, height - 1 + step, radius=16 + step, fill=alpha, outline="")
+            theme.rounded_rect(canvas, 1, 1, width - 1, height - 1, radius=16, fill="#0b1120", outline="#00e5ff", width=1)
+            canvas.create_rectangle(7, 7, width - 7, height - 7, outline="", width=0, tags=("chrome", "marks"))
+
         if not self.folder.items:
-            canvas.create_text(width / 2, height / 2 - 8, text="This dock is empty", fill=text_colour, font=theme.font(10, "bold"))
-            canvas.create_text(width / 2, height / 2 + 12, text="Right-click a dock to add shortcuts", fill="#8b98ad", font=theme.font(8))
+            # Empty dock: no warning texts, keep it clean!
             self._hovered_items = []
-            # The rings are chrome, not content: draw them under the message so an
-            # empty dock still looks like the same dial instead of a bare disc.
-            self._start_orbit()
-            self._start_marks()
+            if is_radial and self.layout.style == "ring":
+                self._start_orbit()
+            else:
+                self._start_marks()
             return
-        cache: ImageCache = self.app.images
+            
+        cache = self.app.images
         settings = self.app.store.settings
         labels = settings.show_labels or self.folder.show_labels
         self._hovered_items = []
@@ -265,12 +340,35 @@ class Panel:
             cell_width, cell_height = self.layout.cell_size()
             if not cell_width or not cell_height:
                 cell_width = cell_height = self._icon_size
-            # Icon and name are both centred in the cell. Anchoring them on the
-            # icon's own width left every item wedged against the left edge of a
-            # wider cell, and in a column the name (which uses the cell width)
-            # then hung off the panel entirely.
-            icon_x = cell_x + (cell_width - self._icon_size) / 2
-            icon_y = cell_y + max(0.0, (cell_height - self._icon_size) / 2 - 4)
+
+            # Card is a square based on icon size
+            card_size = int(self._icon_size * 1.15)
+            card_cx = cell_x + cell_width / 2
+            card_cy = cell_y + (self._icon_size / 2) + 2
+
+            card_x1 = card_cx - card_size / 2
+            card_y1 = card_cy - card_size / 2
+            card_x2 = card_cx + card_size / 2
+            card_y2 = card_cy + card_size / 2
+
+            # 1. Square icon card with rounded corners (Modern Cyberpunk Glass)
+            theme.rounded_rect(
+                canvas,
+                card_x1, card_y1, card_x2, card_y2,
+                radius=14,
+                fill="#0a1626",
+                outline="#00b4d8",
+                width=1,
+                tags=("card", "card" + str(index), "item" + str(index))
+            )
+            # Specular top-edge glass shine
+            canvas.create_line(
+                card_x1 + 8, card_y1 + 1, card_x2 - 8, card_y1 + 1,
+                fill="#67e8f9", width=1,
+                tags=("card_shine", "item" + str(index))
+            )
+
+            # 2. Icon centered in the square card
             try:
                 photo = cache.photo(item_source(item), self._icon_size)
             except Exception:
@@ -281,121 +379,110 @@ class Panel:
                     large = cache.photo(item_source(item), int(self._icon_size * 1.18))
                 except Exception:
                     large = None
+
             if photo is not None:
-                canvas.create_image(icon_x + self._icon_size / 2, icon_y + self._icon_size / 2, image=photo, tags=("icon", "item" + str(index), "iconitem" + str(index)))
+                canvas.create_image(
+                    card_cx, card_cy,
+                    image=photo,
+                    tags=("icon", "item" + str(index), "iconitem" + str(index))
+                )
                 self._keep(photo)
                 if large is not None:
                     self._keep(large)
             self._item_photos.append((photo, large))
+
+            # 3. Label below the card
             if labels:
-                # The label gets the full cell width, which is wider than the icon on
-                # purpose: giving it only the icon's own width clipped names like
-                # "Web Banking C6 Bank" while the cell beside it sat empty.
-                label_width = max(self._icon_size + 8, cell_width)
+                label_width = max(self._icon_size + 24, cell_width)
                 label = _fit_label(item.name, label_width)
                 canvas.create_text(
-                    cell_x + cell_width / 2,
-                    icon_y + self._icon_size + 6,
-                    text=label,
-                    fill=text_colour,
-                    font=theme.font(8),
+                    card_cx,
+                    card_y2 + 6,
+                    text=label.upper(),
+                    fill="#e0f2fe",
+                    font=("Segoe UI", 8, "bold"),
                     width=label_width,
                     anchor="n",
-                    tags=("label", "item" + str(index)),
+                    tags=("label", "label" + str(index), "item" + str(index)),
                 )
-            self._hovered_items.append((icon_x, icon_y, self._icon_size, self._icon_size))
+
+            # Hit area: covers card and label
+            hit_h = card_size + (20 if labels else 0)
+            self._hovered_items.append((card_x1, card_y1, card_size, hit_h))
         if self._hover_index >= 0:
             self._highlight(self._hover_index, True)
-        # Rings run only while a radiating dock is open; every other style, and the
-        # closed panel, stops the timer so nothing ticks in the background.
+            
         if is_radial and self.layout.style == "ring":
             self._start_orbit()
         else:
             self._stop_orbit()
             self._start_marks()
-
+            
     def _draw_disc(self, canvas, width: int, height: int, bg: str, border: str) -> None:
-        """Soft circular backdrop used by the radiating styles."""
-        cx, cy = width / 2, height / 2
-        radius = min(width, height) / 2 - 2
-        # Base: the darkest fill, then stacked rings that lighten towards the
-        # middle. A canvas cannot do a real radial gradient, and an exported
-        # image would clash with the transparency key, so this is the closest
-        # honest approximation.
-        canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius,
-                           fill="#04070c", outline="", tags=("chrome",))
-        # More passes than the eye reads as separate rings: the point is that the
-        # steps are too small to see as bands, so the disc reads as a gradient
-        # while staying a handful of flat ovals the canvas can draw quickly.
-        for step in range(14, 0, -1):
-            shrink = step * radius / 26
-            shade = theme.blend("#0d1322", bg, step / 16)
-            canvas.create_oval(cx - radius + shrink, cy - radius + shrink,
-                               cx + radius - shrink, cy + radius - shrink,
-                               fill=shade, outline="", tags=("chrome",))
-        # Lit rim: a wide, dim bloom just inside the edge, the rim itself, then a
-        # hairline further in. Three passes are what give the disc its glow.
-        for offset, colour, line_width in (
-            (0, ORBIT_GLOW, 6),
-            (2, ORBIT_RIM_SOFT, 3),
-            (5, ORBIT_RIM, 2),
-            (11, theme.blend(border, ORBIT_RIM, 0.45), 1),
-        ):
-            canvas.create_oval(cx - radius + offset, cy - radius + offset,
-                               cx + radius - offset, cy + radius - offset,
-                               outline=colour, width=line_width, tags=("chrome",))
+        """Futuristic multi-layered radial backdrop with concentric glow rings."""
+        photo = get_sci_fi_disc(width, height)
+        self._keep(photo)
+        canvas.create_image(width // 2, height // 2, image=photo, tags=("chrome", "disc"))
 
     def _ring_geometry(self) -> tuple[float, float, float, int, int, float]:
-        """Centre, item-orbit radius and hub radius of the panel.
-
-        The hub has to fit in the empty middle. The closest a cell can come to
-        the centre is its orbit radius minus half its own diagonal, so that
-        clearance is the hard ceiling. A dock with two or three items has almost
-        no middle at all, so the hub is dropped rather than drawn as a cramped
-        dot in the gaps.
-        """
+        """Centre, item-orbit radius and hub radius of the panel."""
         width, height = self.layout.width, self.layout.height
         cx, cy = width / 2, height / 2
         cell_w, cell_h = self.layout.cell_size()
         if not cell_w or not cell_h:
             cell_w = cell_h = self._icon_size
         if not self.layout.cells:
-            return cx, cy, 0.0, cell_w, cell_h, 0.0
+            hub_radius = min(width, height) * 0.26
+            return cx, cy, 0.0, cell_w, cell_h, hub_radius
         cell_x, cell_y = self.layout.cells[0]
         orbit = math.hypot(cell_x + cell_w / 2 - cx, cell_y + cell_h / 2 - cy)
         clearance = orbit - math.hypot(cell_w, cell_h) / 2
         hub_radius = min(clearance * 0.55, min(width, height) * 0.28)
-        if hub_radius < 46:
+        if hub_radius < 32:
             hub_radius = 0.0
         return cx, cy, orbit, cell_w, cell_h, hub_radius
 
     def _draw_hub(self, canvas, cx: float, cy: float, hub_radius: float, text_colour: str) -> None:
-        """Identity plate in the middle: the dock's icon, its name and item count."""
-        canvas.create_oval(cx - hub_radius - 3, cy - hub_radius - 3,
-                           cx + hub_radius + 3, cy + hub_radius + 3,
-                           outline=HUB_GLOW, width=1, tags=("hub", "chrome"))
+        """Central glowing futuristic core — compact, clean."""
+        if hub_radius < 38:
+            return
+
+        # Outer glow ring
+        canvas.create_oval(cx - hub_radius - 6, cy - hub_radius - 6,
+                           cx + hub_radius + 6, cy + hub_radius + 6,
+                           outline="#083344", width=3, tags=("hub", "chrome"))
+        # Mid ring
+        canvas.create_oval(cx - hub_radius - 2, cy - hub_radius - 2,
+                           cx + hub_radius + 2, cy + hub_radius + 2,
+                           outline="#0e7490", width=2, tags=("hub", "chrome"))
+        # Main hub disc
         canvas.create_oval(cx - hub_radius, cy - hub_radius,
                            cx + hub_radius, cy + hub_radius,
-                           fill=HUB_FILL, outline=HUB_RING, width=2, tags=("hub", "chrome"))
-        canvas.create_oval(cx - hub_radius + 6, cy - hub_radius + 6,
-                           cx + hub_radius - 6, cy + hub_radius - 6,
-                           outline=HUB_GLOW, width=1, tags=("hub",))
-        icon_side = max(20, int(hub_radius * 0.78))
+                           fill="#040e1a", outline="#22d3ee", width=2, tags=("hub", "chrome"))
+        # Inner decorative ring
+        inner_r = hub_radius - 6
+        if inner_r > 8:
+            canvas.create_oval(cx - inner_r, cy - inner_r,
+                               cx + inner_r, cy + inner_r,
+                               outline="#0c4a6e", width=1, tags=("hub", "chrome"))
+
+        # Dock icon
+        icon_side = max(24, int(hub_radius * 0.60))
+        photo = None
         try:
             photo = self.app.images.photo(folder_source(self.folder), icon_side)
         except Exception:
             photo = None
+
         if photo is not None:
             self._keep(photo)
-            canvas.create_image(cx, cy - hub_radius * 0.30, image=photo, tags=("hub",))
+            canvas.create_image(cx, cy - 4, image=photo, tags=("hub",))
+
+        # Dock name only — no count, no "X ATALHOS"
         name = _fit_label(self.folder.name, int(hub_radius * 1.6)).upper()
-        if name:
-            canvas.create_text(cx, cy + hub_radius * 0.26, text=name,
-                               fill=text_colour, font=theme.font(9, "bold"), tags=("hub",))
-        count = len(self.folder.items)
-        status = "%d ITEM" % count if count == 1 else "%d ITEMS" % count
-        canvas.create_text(cx, cy + hub_radius * 0.60, text=status,
-                           fill=theme.SUCCESS, font=theme.font(7, "bold"), tags=("hub",))
+        if name and hub_radius > 30:
+            canvas.create_text(cx, cy + hub_radius * 0.55, text=name,
+                               fill="#94a3b8", font=("Segoe UI", 7), tags=("hub",))
 
     # -- chrome animation ---------------------------------------------------
     def _start_marks(self) -> None:
@@ -480,48 +567,38 @@ class Panel:
             self._orbit_job = None
 
     def _draw_orbit(self) -> None:
-        """The moving part: two dashed rings and one dash between each item pair."""
+        """The moving part: subtle rotating reactor arcs."""
         canvas = self.canvas
-        if canvas is None:
+        if canvas is None or self.layout is None:
             return
         canvas.delete("orbit")
         cx, cy, orbit, cell_w, cell_h, hub_radius = self._ring_geometry()
-        disc_radius = min(self.layout.width, self.layout.height) / 2 - 2
+        disc_radius = min(self.layout.width, self.layout.height) / 2 - 12
         phase = self._orbit_phase
-        # Outer dotted ring, hugging the rim.
-        outer = disc_radius - 15
+
+        # Rotating outer energy segments
+        outer = disc_radius - 4
         if outer > 24:
             canvas.create_arc(cx - outer, cy - outer, cx + outer, cy + outer,
-                              start=phase, extent=359.99, style="arc",
-                              outline=ORBIT_RING, width=1, dash=(1, 6),
+                              start=phase, extent=45, style="arc",
+                              outline="#00f0ff", width=2,
                               tags=("orbit",))
-        # Inner dashed ring, spinning the other way. Opposing rotation is what
-        # makes the dial read as a mechanism instead of one turning picture.
-        inner = orbit - (math.hypot(cell_w, cell_h) / 2 + 14)
-        if inner > hub_radius + 12:
-            canvas.create_arc(cx - inner, cy - inner, cx + inner, cy + inner,
-                              start=-phase * 0.75, extent=359.99, style="arc",
-                              outline=ORBIT_RING_DIM, width=1, dash=(2, 8),
+            canvas.create_arc(cx - outer, cy - outer, cx + outer, cy + outer,
+                              start=phase + 180, extent=45, style="arc",
+                              outline="#00f0ff", width=2,
                               tags=("orbit",))
-        # One short dash exactly between each pair of items, on their own orbit:
-        # that segmentation is what the reference menu uses instead of a solid line.
-        count = len(self.layout.cells)
-        if count >= 2:
-            step = 360.0 / count
-            length = min(16.0, max(6.0, orbit * math.sin(math.radians(step / 2)) * 0.5))
-            spin = phase * 0.5
-            for index in range(count):
-                angle = math.radians(spin + step * index + step / 2)
-                dx, dy = math.cos(angle), math.sin(angle)
-                tx, ty = -dy, dx
-                canvas.create_line(cx + orbit * dx - tx * length / 2,
-                                   cy + orbit * dy - ty * length / 2,
-                                   cx + orbit * dx + tx * length / 2,
-                                   cy + orbit * dy + ty * length / 2,
-                                   fill=ORBIT_DASH, width=1, tags=("orbit",))
-        # Moving parts sit above the disc but under the hub and the icons.
-        if canvas.find_withtag("hub"):
-            canvas.tag_lower("orbit", "hub")
+
+        # Central Arc Reactor pulse arc
+        core_r = int(disc_radius * 0.28)
+        if core_r > 15:
+            canvas.create_arc(cx - core_r, cy - core_r, cx + core_r, cy + core_r,
+                              start=-phase * 1.5, extent=80, style="arc",
+                              outline="#00f0ff", width=2,
+                              tags=("orbit",))
+
+        # Moving parts sit above the disc but under the cards and icons.
+        if canvas.find_withtag("card"):
+            canvas.tag_lower("orbit", "card")
         elif canvas.find_withtag("icon"):
             canvas.tag_lower("orbit", "icon")
 
@@ -533,25 +610,27 @@ class Panel:
             self._photos.append(photo)
 
     def _highlight(self, index: int, active: bool) -> None:
-        logging.getLogger("mesadock").info("hover: highlight idx=%s active=%s", index, active)
         if self.canvas is None or index >= len(self._hovered_items):
             return
         tag = "hl" + str(index)
         self.canvas.delete(tag)
-        # Magnify: grow the hovered icon, restore it on leave.
+
+        # 1. Update card border and label highlight
+        card_tag = "card" + str(index)
+        label_tag = "label" + str(index)
+        if active:
+            self.canvas.itemconfigure(card_tag, outline="#00f0ff", width=2, fill="#102844")
+            self.canvas.itemconfigure(label_tag, fill="#38bdf8")
+        else:
+            self.canvas.itemconfigure(card_tag, outline="#00b4d8", width=1, fill="#0a1626")
+            self.canvas.itemconfigure(label_tag, fill="#e0f2fe")
+
+        # 2. Magnify: grow the hovered icon, restore it on leave.
         if index < len(getattr(self, "_item_photos", ())):
             normal, large = self._item_photos[index]
             target = large if (active and large is not None) else normal
             if target is not None:
                 self.canvas.itemconfigure("iconitem" + str(index), image=target)
-        if not active:
-            return
-        x, y, w, h = self._hovered_items[index]
-        # Visible accent highlight: soft blue-tinted fill plus a bright blue border.
-        theme.rounded_rect(self.canvas, x - 6, y - 6, x + w + 6, y + h + 6, radius=12,
-                           fill="#0e7490",
-                           outline="#67e8f9", width=2, tags=("hover", tag))
-        self.canvas.tag_raise("item" + str(index))
 
     # -- interaction -------------------------------------------------------
     def _index_at(self, x: int, y: int) -> int:
@@ -562,7 +641,6 @@ class Panel:
 
     def _on_motion(self, event) -> None:
         index = self._index_at(event.x, event.y)
-        logging.getLogger("mesadock").info("hover: motion x=%s y=%s idx=%s (hover_index=%s)", event.x, event.y, index, self._hover_index)
         if index != self._hover_index:
             if self._hover_index >= 0:
                 self._highlight(self._hover_index, False)

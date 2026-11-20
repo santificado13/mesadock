@@ -1,14 +1,12 @@
-"""Icon artwork: built-in dock icons and tinting.
-
-Pure Pillow, no Tk, so the artwork can be generated and tested headlessly. The
-GUI layer turns these PNGs into PhotoImages.
-"""
 from __future__ import annotations
 
 import io
+import os
+import random
 from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont
 
-from PIL import Image, ImageDraw, ImageFilter
+from . import paths
 
 ACCENTS = {
     "blue": (94, 162, 255),
@@ -33,62 +31,67 @@ def _rgba(colour: tuple[int, int, int], alpha: int = 255) -> tuple[int, int, int
     return (colour[0], colour[1], colour[2], alpha)
 
 
-def _background(size: int, accent: str) -> Image.Image:
-    """Use the high-resolution logo/dock artwork directly."""
-    try:
-        from .paths import asset
-        path = asset("mesadock_new.png")
-        if path.exists():
-            with Image.open(path) as img:
-                return img.convert("RGBA").resize((size, size), Image.LANCZOS)
-    except Exception:
-        pass
-    base = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    return base
+def _get_font(size: int) -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
+    font_size = max(8, int(size * 0.35))
+    for font_name in ("arialbd.ttf", "arial.ttf", "consola.ttf", "segoeui.ttf"):
+        try:
+            return ImageFont.truetype(font_name, font_size)
+        except (OSError, IOError):
+            pass
+    windir = os.environ.get("WINDIR", r"C:\Windows")
+    for font_name in ("arialbd.ttf", "arial.ttf", "consola.ttf"):
+        font_path = Path(windir) / "Fonts" / font_name
+        if font_path.exists():
+            try:
+                return ImageFont.truetype(str(font_path), font_size)
+            except (OSError, IOError):
+                pass
+    return ImageFont.load_default()
 
 
-def _mini_tiles(draw: ImageDraw.ImageDraw, size: int, count: int, accent: str) -> None:
-    """A few item tiles hinting at the contents of the dock."""
-    colour = ACCENTS.get(accent, ACCENTS["blue"])
-    tile = int(size * 0.17)
-    gap = int(size * 0.06)
-    cols = 2 if count > 1 else 1
-    rows = max(1, (count + cols - 1) // cols)
-    total_w = cols * tile + (cols - 1) * gap
-    total_h = rows * tile + (rows - 1) * gap
-    left = (size - total_w) // 2
-    top = (size - total_h) // 2 + int(size * 0.02)
-    for index in range(count):
-        row, col = divmod(index, cols)
-        x = left + col * (tile + gap)
-        y = top + row * (tile + gap)
-        draw.rounded_rectangle((x, y, x + tile, y + tile), radius=max(2, tile // 4), fill=_rgba(colour, 190))
-        draw.rounded_rectangle((x, y, x + tile, y + tile), radius=max(2, tile // 4), outline=(255, 255, 255, 90))
+def dock_icon(
+    style: str,
+    size: int = 64,
+    accent: str | None = None,
+    item_count: int = 0,
+    dock_index: int = 1,
+) -> Image.Image:
+    caminho_foto = paths.asset("molde_limpo.png")
+    if not caminho_foto.exists():
+        caminho_foto = paths.asset("mesadock.png")
 
+    if caminho_foto.exists():
+        try:
+            base_img = Image.open(caminho_foto).convert("RGBA").resize((size, size), Image.Resampling.LANCZOS)
+            graus = ((dock_index - 1) * 60) % 360 if dock_index > 0 else random.randint(0, 359)
+            r, g, b, a = base_img.split()
+            img_hsv = Image.merge("RGB", (r, g, b)).convert("HSV")
+            h, s, v = img_hsv.split()
+            shift = int((graus / 360.0) * 255)
+            h = h.point(lambda p: (p + shift) % 256)
+            img_rgb = Image.merge("HSV", (h, s, v)).convert("RGB")
+            r2, g2, b2 = img_rgb.split()
+            final_img = Image.merge("RGBA", (r2, g2, b2, a))
+        except Exception:
+            final_img = Image.new("RGBA", (size, size), (20, 20, 30, 255))
+    else:
+        final_img = Image.new("RGBA", (size, size), (20, 20, 30, 255))
 
-def dock_icon(style: str, size: int = 64, accent: str | None = None, item_count: int = 3) -> Image.Image:
-    """Return the high-resolution logo artwork without dark overlays."""
-    return _background(size, accent or "blue")
+    draw = ImageDraw.Draw(final_img)
+
+    # Selo no canto superior direito
+    bx = size * 0.85
+    by = size * 0.16
+
+    font = _get_font(size)
+    cor_texto = (255, 255, 255, 255)
+    draw.text((bx, by), str(dock_index), fill=cor_texto, font=font, anchor="mm")
+
+    return final_img
 
 
 def self_badge(size: int, count: int, accent: str) -> Image.Image:
-    """Small count badge drawn in the corner of a dock icon."""
-    layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(layer)
-    radius = max(6, int(size * 0.16))
-    cx = size - radius - max(1, int(size * 0.03))
-    cy = size - radius - max(1, int(size * 0.03))
-    draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=_rgba(ACCENTS.get(accent, ACCENTS["blue"]), 240))
-    label = str(count) if count < 100 else "99+"
-    try:
-        from PIL import ImageFont
-
-        font = ImageFont.load_default(size=max(8, int(size * 0.18)))
-    except Exception:
-        font = None
-    box = draw.textbbox((0, 0), label, font=font)
-    draw.text((cx - (box[2] - box[0]) / 2, cy - (box[3] - box[1]) / 2 - box[1]), label, fill=(12, 14, 18, 255), font=font)
-    return layer
+    return Image.new("RGBA", (size, size), (0, 0, 0, 0))
 
 
 def default_image(style: str, size: int = 64) -> Image.Image:
@@ -109,7 +112,6 @@ def png_bytes(image: Image.Image) -> bytes:
 
 
 def tint_icon(image: Image.Image, colour: tuple[int, int, int], strength: float = 0.35) -> Image.Image:
-    """Blend a colour into the opaque pixels of an icon."""
     overlay = Image.new("RGBA", image.size, _rgba(colour, int(255 * max(0.0, min(1.0, strength)))))
     return Image.alpha_composite(image, overlay)
 
@@ -133,12 +135,11 @@ def placeholder_icon(extension: str, size: int = 64) -> Image.Image:
 
 
 def ensure_default_assets(directory: str | Path, size: int = 256) -> dict[str, Path]:
-    """Write the built-in dock icons once; returns style -> path."""
     folder = Path(directory)
     produced: dict[str, Path] = {}
     for style in ("grid", "column", "row", "fan", "ring"):
-        path = folder / ("dock-" + style + ".png")
+        path = folder / f"dock-{style}.png"
         if not path.exists():
-            save_png(dock_icon(style, size, item_count=0), path)
+            save_png(dock_icon(style, size, dock_index=1), path)
         produced[style] = path
     return produced

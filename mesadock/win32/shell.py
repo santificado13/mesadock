@@ -1,4 +1,4 @@
-"""Shell integration: shortcut resolution, icons, autostart and clipboard paths.
+﻿"""Shell integration: shortcut resolution, icons, autostart and clipboard paths.
 
 Windows shortcuts are LNK files; MesaDock needs their target, arguments and the
 icon Windows would draw for them. If the pywin32/pythoncom helpers are absent,
@@ -178,22 +178,24 @@ def _vbs_quote(value: str) -> str:
 
 
 def _read_shortcut_via_vbs(shortcut: Path) -> dict[str, str]:
+    """Refatorado: Utiliza pylnk3 em memoria para evitar I/O no disco."""
     empty = {"target": "", "args": "", "icon": "", "workdir": ""}
-    script = (
-        "Set s = CreateObject(\"WScript.Shell\")\n"
-        "Set l = s.CreateShortcut(\"" + _vbs_quote(shortcut) + "\")\n"
-        "WScript.Echo l.TargetPath & vbTab & l.Arguments & vbTab & l.IconLocation & vbTab & l.WorkingDirectory\n"
-    )
-    completed = _run_vbs(script)
-    if completed is None or completed.returncode != 0:
+    try:
+        import pylnk3
+        import io
+        with open(shortcut, "rb") as f:
+            data = f.read()
+        lnk = pylnk3.parse(io.BytesIO(data))
+        return {
+            "target": lnk.path or "",
+            "args": lnk.arguments or "",
+            "icon": lnk.icon or "",
+            "workdir": lnk.work_dir or ""
+        }
+    except Exception as exc:
+        import logging
+        logging.getLogger("mesadock").warning("Falha ao ler atalho %s: %s", shortcut, exc)
         return empty
-    # cscript writes its diagnostics to stdout too, so only a tab-separated line
-    # can be trusted as an answer.
-    text = completed.stdout.decode("utf-8", "replace").strip()
-    if "\t" not in text:
-        return empty
-    parts = (text.split("\t") + ["", "", "", ""])[:4]
-    return {"target": parts[0], "args": parts[1], "icon": parts[2], "workdir": parts[3]}
 
 
 def create_shortcut(link_path: str | Path, target: str, args: str = "", icon: str = "", workdir: str = "") -> bool:
@@ -571,20 +573,18 @@ def icon_data_url(path: str, size: int = 64) -> str:
 
 # --- autostart ------------------------------------------------------------
 def _installed_executable() -> Path | None:
-    """Path of the packaged MesaDock.exe when this machine has one installed.
-
-    Checks both the new standard location and the legacy AppData location.
-    """
-    # New standard location (priority)
-    new_path = Path(r"C:\Users\franc\PROGRAMAS\MesaDock\MesaDock.exe")
-    if new_path.is_file():
-        return new_path
-    # Legacy location
-    candidate = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "MesaDock" / "MesaDock.exe"
-    try:
-        return candidate if candidate.is_file() else None
-    except OSError:
-        return None
+    """Path of the packaged MesaDock.exe when this machine has one installed."""
+    candidates = [
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "MesaDock" / "MesaDock.exe",
+        Path(os.environ.get("USERPROFILE", "")) / "PROGRAMAS" / "MesaDock" / "MesaDock.exe",
+    ]
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+    return None
 
 def autostart_command() -> str:
     """Command line written to the Run key to start MesaDock at logon."""

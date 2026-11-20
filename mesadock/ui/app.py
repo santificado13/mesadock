@@ -1,5 +1,6 @@
 """Application controller: owns the store, the dock windows and the panels."""
 from __future__ import annotations
+from PIL import Image, ImageTk
 
 import logging
 import time
@@ -28,6 +29,7 @@ class MesaDockApp:
         self.root = tk.Tk()
         self.root.withdraw()
         self.root.title("MesaDock")
+        theme.apply_window_icon(self.root)
         theme.apply_ttk_theme(self.root)
         self.images = ImageCache()
         self.docks: dict[str, "DockWindow"] = {}
@@ -81,8 +83,8 @@ class MesaDockApp:
                 callback = self._tk_queue.get_nowait()
                 try:
                     callback()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger("mesadock").exception("Erro na fila Tk: %s", exc)
         except queue.Empty:
             pass
         try:
@@ -140,7 +142,7 @@ class MesaDockApp:
             try:
                 from ..core import icons as icon_art
 
-                icon = str(icon_art.save_png(icon_art.dock_icon("grid", 64, item_count=0),
+                icon = str(icon_art.save_png(icon_art.dock_icon("grid", 64, item_count=0, dock_index=len(self.docks) + 1),
                                              paths.icons_cache_dir() / "tray.png"))
             except Exception:
                 icon = None
@@ -263,6 +265,18 @@ class MesaDockApp:
             preferred=(monitor.rect[0], monitor.rect[1]), icon=size)
         folder.position = (int(x), int(y))
         self.store.add_folder(folder)
+        try:
+            from mesadock.core import icons as icon_art
+            from mesadock.core import paths
+
+            dock_index = len(self.docks) + 1
+            img = icon_art.dock_icon(folder.style, 256, item_count=0, dock_index=dock_index)
+            custom_path = paths.icons_cache_dir() / f"dock_custom_{folder.id}.png"
+            icon_art.save_png(img, custom_path)
+            self.set_dock_icon(folder.id, str(custom_path))
+        except Exception as e:
+            logging.getLogger("mesadock").exception("Erro ao gerar ícone inicial da doca: %s", e)
+
         self.touch()
         self.sync_docks()
         return folder
@@ -499,10 +513,7 @@ class MesaDockApp:
             elif over_panel is None:
                 self._schedule_close()
         elif self.panels and over_panel is None and over_dock is None:
-            # Click mode used to have no closing gesture at all: once a panel was
-            # open, moving the pointer away left it on screen forever. Closing when
-            # the pointer leaves both the panel and its dock is the expected
-            # behaviour in either mode.
+            # Click mode closes when the pointer leaves both the panel and its dock
             self._schedule_close()
         self._pointer_job = self.root.after(70, self._poll_pointer)
     def _schedule_open(self, folder: DockFolder) -> None:
@@ -527,15 +538,21 @@ class MesaDockApp:
             return
         if not self._hover_enabled():
             return
+        
+        try:
+            px, py = self.root.winfo_pointerxy()
+        except tk.TclError:
+            px, py = -1, -1
+
         # Only auto-close when the pointer really left both the panel and its dock.
         for panel in list(self.panels.values()):
             if not panel.is_alive():
                 self._panel_closed(panel)
                 continue
             dock = self.docks.get(panel.folder.id)
-            if panel.contains_point(*self._last_pointer):
+            if panel.contains_point(px, py):
                 return
-            if dock is not None and dock.contains_point(*self._last_pointer):
+            if dock is not None and dock.contains_point(px, py):
                 return
             self.close_panel(panel.folder.id)
 
@@ -721,6 +738,37 @@ class MesaDockApp:
             return
         self.remove_item(folder.id, item.id, restore=restore)
     # -- manager / tray ----------------------------------------------------
+    def _apply_win11_effects(self, window) -> None:
+        """Apply Windows 11 rounded corners and dark title bars via DWM."""
+        try:
+            import ctypes
+            window.update_idletasks()
+            
+            # A forma mais infalivel: mandar o Windows procurar a janela pelo titulo exato
+            title = window.title()
+            hwnd = ctypes.windll.user32.FindWindowW(None, title)
+            
+            # Fallback caso mude de nome
+            if not hwnd:
+                hwnd = ctypes.windll.user32.GetParent(int(window.winfo_id()))
+            DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+            DWMWA_WINDOW_CORNER_PREFERENCE = 33
+            DWMWCP_ROUND = 2
+            
+            dwmapi = ctypes.windll.dwmapi
+            
+            # For ar barra de t tulo escura se o tema for dark
+            if getattr(self.store.settings, "panel_theme", "dark") in ("dark", "auto"):
+                value = ctypes.c_int(1)
+                dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(value), ctypes.sizeof(value))
+                
+            # For ar cantos arredondados nativos do Windows 11
+            corner = ctypes.c_int(DWMWCP_ROUND)
+            dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ctypes.byref(corner), ctypes.sizeof(corner))
+        except Exception as exc:
+            import logging
+            logging.getLogger("mesadock").debug("Efeitos DWM ignorados (provavelmente SO incompativel): %s", exc)
+
     def open_manager(self, select: str | None = None, select_item: str | None = None) -> None:
         from .manager import ManagerWindow
 
@@ -728,9 +776,15 @@ class MesaDockApp:
             self.manager.show()
             if select:
                 self.manager.select_folder(select)
+            if hasattr(self.manager, 'window'):
+                self._apply_win11_effects(self.manager.window)
             return
         self.manager = ManagerWindow(self, select=select, select_item=select_item)
         self.manager.show()
+        
+        # Aplicamos com um pequeno delay para garantir que o Tkinter ja alocou o HWND da janela
+        if hasattr(self.manager, 'window'):
+            self.root.after(50, lambda: self._apply_win11_effects(self.manager.window))
 
     def closed_manager(self) -> None:
         self.manager = None
@@ -807,3 +861,4 @@ class MesaDockApp:
                 except OSError:
                     continue
         return restored
+

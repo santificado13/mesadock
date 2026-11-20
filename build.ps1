@@ -1,4 +1,4 @@
-# Build a standalone MesaDock.exe with PyInstaller.
+﻿# Build a standalone MesaDock.exe with PyInstaller.
 # Usage: powershell -ExecutionPolicy Bypass -File build.ps1
 #
 # The build runs from launcher.py, a two-line wrapper around mesadock.__main__, so
@@ -12,6 +12,14 @@ if (-not (Get-Command pyinstaller -ErrorAction SilentlyContinue)) {
     Write-Host "Installing PyInstaller..." -ForegroundColor Cyan
     python -m pip install --upgrade pyinstaller
 }
+
+Write-Host "A executar Testes (pytest) antes do build..." -ForegroundColor Yellow
+python -m pytest tests/
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Testes falharam! Executável nao será gerado para evitar regressões."
+    exit $LASTEXITCODE
+}
+Write-Host "Testes validados com sucesso!" -ForegroundColor Green
 
 $root = $PSScriptRoot
 $assets = Join-Path $root "mesadock\assets"
