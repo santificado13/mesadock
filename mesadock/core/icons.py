@@ -154,8 +154,12 @@ def _draw_glyph(draw: ImageDraw.ImageDraw, size: int, style: str, colour: tuple[
         draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=glyph_rim, width=max(1, int(size * 0.03)))
 
 
-def dock_icon(style: str, size: int = 64, accent: str | None = None, item_count: int = 0) -> Image.Image:
-    """Return a modern translucent glass dock icon, badged when item_count > 0."""
+def dock_icon(style: str, size: int = 64, accent: str | None = None, item_count: int = 0,
+              dock_index: int = 1) -> Image.Image:
+    """Return a modern translucent glass dock icon, badged when item_count > 0.
+
+    ``dock_index`` is accepted for older callers and no longer drawn.
+    """
     colour = accent or STYLE_COLOURS.get(style, "blue")
     image = _render_tile(size, colour, style)
     if item_count > 0:

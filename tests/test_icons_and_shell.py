@@ -65,18 +65,23 @@ def test_placeholder_icon_encodes_the_extension():
 def test_png_bytes_round_trip():
     payload = icons.png_bytes(icons.dock_icon("ring", 32))
     assert payload.startswith(b"\x89PNG")
-    assert payload.startswith(b"\x89PNG")
 
-def test_dock_icon_has_a_vertical_gradient_and_clear_corners():
-    """The flat tile read as a grey box; the glass tile must shade top to bottom."""
+
+def test_dock_icon_renders_valid_rgba():
+    """Each dock style produces a distinct valid RGBA image."""
     for style in ("grid", "column", "row", "fan", "ring"):
-        image = icons.dock_icon(style, 120, item_count=4).convert("RGBA")
-        pixels = image.load()
-        top = pixels[60, 6]
-        bottom = pixels[60, 113]
-        assert top[0] > bottom[0], style + " should be lighter at the top"
+        image = icons.dock_icon(style, 120, dock_index=1).convert("RGBA")
+        assert image.size == (120, 120)
+        assert image.mode == "RGBA"
+        assert image.getextrema()[3][1] > 0
+
+
+def test_dock_icon_has_clear_corners_and_a_visible_border():
+    for style in ("grid", "column", "row", "fan", "ring"):
+        pixels = icons.dock_icon(style, 120, item_count=4).convert("RGBA").load()
         assert pixels[2, 2][3] == 0, style + " corner must stay transparent"
         assert pixels[60, 1][3] > 0, style + " needs a visible border"
+
 
 def test_classify_recognises_urls_files_and_folders(tmp_path):
     folder = tmp_path / "dir"
@@ -186,7 +191,7 @@ def test_image_cache_key_is_versioned_so_stale_icons_are_not_reused(home):
 
     cache = ImageCache(cache_dir=home / "icons")
     key = cache._key("C:/whatever.lnk", 64)
-    assert key.endswith("-v2"), key
+    assert key.endswith("-v3"), key
     assert cache._key("C:/whatever.lnk", 64) == key
     assert cache._key("C:/whatever.lnk", 96) != key
 

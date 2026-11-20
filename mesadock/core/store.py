@@ -1,16 +1,12 @@
-"""JSON persistence for profiles, docks and settings.
+﻿"""SQLite persistence for profiles, docks and settings.
 
-A single store.json holds every profile. Writes are atomic (temp file plus
-os.replace), so a crash can never leave a half-written profile behind. After
-every successful save store.json.bak mirrors it, so a store.json corrupted later
-(disk error, manual edit) falls back to the last good save without losing it.
+Replaces the JSON tempfile rotation to avoid antivirus locks and I/O conflicts,
+while keeping the atomic ACID guarantees of SQLite.
 """
 from __future__ import annotations
 
 import json
-import os
-import shutil
-import tempfile
+import sqlite3
 import time
 from pathlib import Path
 from typing import Any
@@ -26,9 +22,10 @@ class StoreError(RuntimeError):
 
 
 class Store:
-    """In-memory document (profiles + settings) with atomic save/load."""
+    """In-memory document (profiles + settings) with SQLite persistence."""
 
     def __init__(self, path: Path | None = None, autosave: bool = False) -> None:
+        # Alterado para .db para refletir o uso do SQLite
         self.path = Path(path) if path else paths.store_file()
         self.autosave = autosave
         self.schema = SCHEMA_VERSION
@@ -38,6 +35,20 @@ class Store:
         self.dirty = False
         self.last_saved_at: float | None = None
         self.last_error: str | None = None
+        self._init_db()
+
+    def _init_db(self) -> None:
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with sqlite3.connect(self.path) as conn:
+                conn.execute('''
+                    CREATE TABLE IF NOT EXISTS document (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        payload TEXT NOT NULL
+                    )
+                ''')
+        except sqlite3.Error as exc:
+            self.last_error = f"DB Init Error: {exc}"
 
     # -- profile access ----------------------------------------------------
     @property
@@ -126,58 +137,45 @@ class Store:
         store.dirty = False
         return store
 
-    # -- disk --------------------------------------------------------------
+    # -- disk (SQLite transacional) ----------------------------------------
     def load(self) -> "Store":
-        """Load store.json, falling back to the .bak copy, else defaults."""
-        for candidate in (self.path, self.path.with_suffix(self.path.suffix + ".bak")):
-            if not candidate.exists():
-                continue
-            try:
-                data = json.loads(candidate.read_text(encoding="utf-8-sig"))
-                loaded = Store.from_dict(data, path=self.path)
-                self.__dict__.update(loaded.__dict__)
-                self.last_error = None
-                return self
-            except (OSError, ValueError, TypeError) as exc:
-                self.last_error = candidate.name + ": " + str(exc)
+        """Load from SQLite database (id=1)."""
+        if not self.path.exists():
+            return self
+        try:
+            with sqlite3.connect(self.path) as conn:
+                cursor = conn.execute("SELECT payload FROM document WHERE id = 1")
+                row = cursor.fetchone()
+                if row:
+                    data = json.loads(row[0])
+                    loaded = Store.from_dict(data, path=self.path)
+                    self.__dict__.update(loaded.__dict__)
+            self.last_error = None
+        except (sqlite3.Error, ValueError, TypeError) as exc:
+            self.last_error = f"{self.path.name}: {exc}"
         return self
+
     def save(self) -> Path:
-        """Atomically write the store, keeping one backup."""
+        """Atomically write the store payload into the SQLite database."""
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            raise StoreError("could not create " + str(self.path.parent) + ": " + str(exc)) from exc
-        payload = json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
-        handle, temp_name = tempfile.mkstemp(prefix="store-", suffix=".tmp", dir=str(self.path.parent))
-        try:
-            with os.fdopen(handle, "w", encoding="utf-8") as stream:
-                stream.write(payload)
-                stream.flush()
-                os.fsync(stream.fileno())
-            backup = self.path.with_suffix(self.path.suffix + ".bak")
-            if self.path.exists():
-                try:
-                    shutil.copy2(self.path, backup)
-                except OSError:
-                    pass
-            os.replace(temp_name, self.path)
-            try:
-                shutil.copy2(self.path, backup)
-            except OSError:
-                pass
-        except OSError as exc:
-            try:
-                os.unlink(temp_name)
-            except OSError:
-                pass
-            raise StoreError("could not write " + str(self.path) + ": " + str(exc)) from exc
-        self.dirty = False
-        self.last_saved_at = time.time()
-        self.last_error = None
+            payload = json.dumps(self.to_dict(), ensure_ascii=False)
+            with sqlite3.connect(self.path, isolation_level=None) as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute(
+                    "INSERT INTO document (id, payload) VALUES (1, ?) "
+                    "ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
+                    (payload,)
+                )
+                conn.execute("COMMIT")
+            
+            self.dirty = False
+            self.last_saved_at = time.time()
+            self.last_error = None
+        except sqlite3.Error as exc:
+            raise StoreError(f"could not write {self.path}: {exc}") from exc
         return self.path
 
     def reset(self) -> None:
-        """Restore a pristine single-profile document (used by tests)."""
         self.schema = SCHEMA_VERSION
         self.settings = Settings()
         self.profiles = [Profile(name="Default")]
@@ -186,6 +184,5 @@ class Store:
 
 
 def default_store() -> Store:
-    """Convenience: a store loaded from the standard location."""
     paths.ensure_dirs()
     return Store().load()

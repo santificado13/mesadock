@@ -97,7 +97,9 @@ def apply_window_icon(window) -> None:
     try:
         from ..core import paths
 
-        icon = paths.asset("mesadock.ico")
+        icon = paths.asset("mesadock_new.ico")
+        if not icon.exists():
+            icon = paths.asset("mesadock.ico")
         if icon.exists():
             window.iconbitmap(default=str(icon))
             return

@@ -1,4 +1,4 @@
-"""Pure geometry for MesaDock.
+﻿"""Pure geometry for MesaDock.
 
 No Tk, no Win32: every function takes numbers and returns numbers, which keeps
 panel placement testable without a display.
@@ -116,20 +116,29 @@ def _fan_radius(count: int, icon: int, cell_w: int | None = None,
     diagonal = math.hypot(w, h)
     chord = diagonal * 1.08 + gap + 6
     step = FAN_SPAN / (count - 1)
-    # A chord estimate alone is not enough: the cells are axis-aligned boxes, so
-    # two neighbours whose centres sit far apart along the arc still collide when
-    # they differ mostly in one axis. Grow the radius until every pair is truly
-    # separated, which is cheap (few dozen items) and exact.
-    radius = max(icon * 1.2, chord / (2 * math.sin(step / 2)))
-    for _ in range(400):
-        points = []
-        for index in range(count):
-            angle = FAN_START + FAN_SPAN * (index / (count - 1))
-            points.append((radius * math.cos(angle), radius * math.sin(angle)))
-        if _fan_points_clear(points, w, h, gap):
-            return radius
-        radius *= 1.04
-    return radius
+    # A chord estimate alone is not enough: the cells are axis-aligned boxes.
+    # We use a binary search to find the exact minimum radius efficiently,
+    # replacing the old O(N) brute-force multiplication loop.
+    min_rad = max(icon * 1.2, chord / (2 * math.sin(step / 2)))
+    max_rad = min_rad * 4.0
+    
+    def check_rad(r: float) -> bool:
+        pts = []
+        for i in range(count):
+            ang = FAN_START + FAN_SPAN * (i / (count - 1))
+            pts.append((r * math.cos(ang), r * math.sin(ang)))
+        return _fan_points_clear(pts, w, h, gap)
+
+    while not check_rad(max_rad):
+        max_rad *= 2.0
+
+    for _ in range(12):  # 12 iterações bastam para precisão sub-pixel
+        mid = (min_rad + max_rad) / 2.0
+        if check_rad(mid):
+            max_rad = mid
+        else:
+            min_rad = mid
+    return max_rad
 
 
 def _ring_radius(

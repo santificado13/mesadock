@@ -226,7 +226,7 @@ def sit_above_desktop(hwnd: int) -> bool:
         user32.SetWindowPos.restype = wintypes.BOOL
         user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
         user32.GetWindow.restype = wintypes.HWND
-        flags = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW
+        flags = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW
         # The handle has to be the real toplevel; the widget id Tk reports is only
         # its child frame, and reordering that one changes nothing on screen.
         target = top_level_hwnd(hwnd)
@@ -246,13 +246,7 @@ def sit_above_desktop(hwnd: int) -> bool:
         return False
 
 def needs_reanchor(hwnd: int) -> bool:
-    """True when the desktop has moved above this window and is covering it.
-
-    Show Desktop (Win+D) raises Progman to the front of the z-order. A dock
-    anchored just above the desktop then ends up *behind* it, which looks exactly
-    like the dock disappearing. Walking the neighbour chain is cheap and needs no
-    window enumeration, so it can run on a short timer.
-    """
+    """True when the dock is not properly parked directly above the desktop."""
     if not desktop_enabled() or not hwnd:
         return False
     anchor = desktop_window()
@@ -265,22 +259,24 @@ def needs_reanchor(hwnd: int) -> bool:
         target = top_level_hwnd(hwnd)
         if not target:
             return False
-        GW_HWNDPREV = 3
         GW_HWNDNEXT = 2
-        # Walk the real top-level chain from the front of the z-order and see which
-        # comes first: the dock or the desktop. Using GetWindow(GW_HWNDPREV) from
-        # the desktop looked cheaper but walked the wrong way and never reported
-        # the problem, so the dock stayed hidden.
-        walker = int(user32.GetTopWindow(None) or 0)
-        for _ in range(600):
-            if not walker:
-                break
-            if walker == target:
-                return False          # dock is in front of the desktop: fine
+        walker = int(user32.GetWindow(target, GW_HWNDNEXT) or 0)
+        while walker:
             if walker == int(anchor):
-                return True           # desktop reached first: dock is behind it
+                return False
+            if user32.IsWindowVisible(walker):
+                buf = ctypes.create_unicode_buffer(64)
+                user32.GetClassNameW(walker, buf, 64)
+                if buf.value not in (
+                    "TkTopLevel",
+                    "WorkerW",
+                    "DummyDWMListenerWindow",
+                    "PseudoConsoleWindow",
+                    "ThumbnailDeviceHelperWnd",
+                ):
+                    return True
             walker = int(user32.GetWindow(walker, GW_HWNDNEXT) or 0)
-        return False
+        return True
     except _SHELL_ERRORS:
         return False
 

@@ -1,4 +1,4 @@
-"""Filesystem locations for MesaDock.
+﻿"""Filesystem locations for MesaDock.
 
 Everything lives in %APPDATA%/MesaDock unless MESADOCK_HOME overrides it
 (used by the test-suite so tests never touch a real profile).
@@ -26,7 +26,7 @@ def ensure_dirs() -> None:
 
 
 def store_file() -> Path:
-    return home_dir() / "store.json"
+    return home_dir() / "store.db"
 
 
 

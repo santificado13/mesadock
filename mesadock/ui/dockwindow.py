@@ -44,6 +44,7 @@ class DockWindow:
         self._bind()
         self._draw()
         self.app.root.after(30, self._place_on_desktop)
+        self.app.root.after(80, self._ensure_on_desktop)
         self.app.root.after(900, self._watch_desktop_layer)
 
     # -- geometry ----------------------------------------------------------
