@@ -2,13 +2,9 @@
 from __future__ import annotations
 
 import tkinter as tk
-# tk.font is a submodule, not an attribute of the tkinter package: without this
-# import every measurement raised AttributeError, was swallowed by the except
-# below, and fell back to a character-count guess. That is why "IA ASSISTENTES"
-# was cut to "IA ASSI..." even though the measuring code looked correct.
 import tkinter.font as tkfont
 
-from PIL import ImageTk
+from PIL import Image, ImageTk
 
 from ..core import layout as layout_mod
 from ..core.models import DockFolder
@@ -83,14 +79,11 @@ class DockWindow:
         self.folder.position = (int(x), int(y))
         self.app.root.after(10, self._ensure_on_desktop)
         self.app.touch()
+
     def _place_on_desktop(self) -> None:
         """Layer the dock like a desktop icon, unless the user opted out."""
         self._register_drops()
         if not self.app.store.settings.attach_to_desktop:
-            # "Off" means the dock floats above every window. This used to clear
-            # -topmost instead, so the dock became an ordinary window and any
-            # maximised app (a browser, Explorer) simply covered it: the dock
-            # appeared to vanish until the app was restarted.
             self._set_topmost(True)
             return
         try:
@@ -99,13 +92,6 @@ class DockWindow:
             return
         from ..win32 import desktop
 
-        # Layering: keep the dock in the normal z-order, parked directly above the
-        # desktop. Reparenting into Progman looked correct but placed the dock
-        # behind SHELLDLL_DefView, so it was invisible; send_to_bottom alone put it
-        # below the wallpaper. Siting it above the desktop is the only ordering that
-        # stays visible while still sitting behind ordinary application windows.
-        # -topmost must be cleared here too: after a stay in floating mode the dock
-        # kept the flag and stayed above every window even in desktop mode.
         self._set_topmost(False)
         desktop.apply_desktop_window_styles(hwnd)
         desktop.sit_above_desktop(hwnd)
@@ -125,14 +111,6 @@ class DockWindow:
             pass
 
     def _ensure_on_desktop(self) -> None:
-        """Re-assert the layering after Tk recreates or moves the window.
-
-        Tk destroys and recreates the toplevel when the geometry or -topmost
-        changes, which silently drops the previous SetWindowPos: the dock then
-        disappears behind other windows until the app is restarted. A single
-        delayed retry raced with that recreation, so the call is repeated a few
-        times over a short window; every step is idempotent.
-        """
         if self._reassert_job is not None:
             try:
                 self.app.root.after_cancel(self._reassert_job)
@@ -160,14 +138,8 @@ class DockWindow:
             self._reassert_job = self.app.root.after(
                 120, lambda: self._reassert_step(step + 1)
             )
-    def _watch_desktop_layer(self) -> None:
-        """Keep the dock above the desktop even after "Show desktop" (Win+D).
 
-        Win+D raises Progman to the front of the z-order. The dock is anchored
-        directly above the desktop, so it ended up *behind* it and looked like it
-        had vanished until MesaDock was restarted. A cheap neighbour-chain check on
-        a timer re-anchors it as soon as that happens, so the dock is always there.
-        """
+    def _watch_desktop_layer(self) -> None:
         self._watch_job = None
         if not self.is_alive():
             return
@@ -187,6 +159,7 @@ class DockWindow:
         except Exception:
             pass
         self._watch_job = self.app.root.after(700, self._watch_desktop_layer)
+
     # -- drawing -----------------------------------------------------------
     def set_drop_highlight(self, active: bool) -> None:
         """Show the green ring while a shortcut is dragged over this dock."""
@@ -199,26 +172,24 @@ class DockWindow:
         canvas = self.canvas
         canvas.delete("all")
         size = self._pixel_size()
-        # The window is an icon plus a caption, so it is only as wide as the name
-        # needs. Using the square icon size for both axes is what forced long
-        # names to wrap and lose their last word.
         width = self._dock_width()
         icon_x = width / 2
         inset = ICON_PAD // 2
-        # The name sits in a strip under the icon, so the window is taller than it
-        # is wide. Without it every dock looked identical: a coloured glyph with a
-        # count badge and no way to tell two docks apart.
         label = self._label_text()
         label_height = self._label_height() if label else 0
         icon_height = size
+        icon_size = size - ICON_PAD * 2
+
         if self._drop_highlight:
             theme.rounded_rect(canvas, 1, 1, width - 1, size - 1, radius=14,
-                               fill=theme.blend("#0d1016", "#34d399", 0.28), outline="#34d399", width=2)
+                               fill=theme.blend("#0c0f17", "#34d399", 0.28), outline="#34d399", width=2)
         elif self._hover:
-            theme.rounded_rect(canvas, 1, 1, width - 1, size - 1, radius=14,
-                               fill=theme.blend("#0d1016", "#5ea2ff", 0.16), outline="#3d5170", width=1)
+            theme.rounded_rect(canvas, icon_x - icon_size / 2 - 2, icon_height / 2 - icon_size / 2 - 2,
+                               icon_x + icon_size / 2 + 2, icon_height / 2 + icon_size / 2 + 2, radius=14,
+                               fill=theme.blend("#0c0f17", theme.ACCENT, 0.20),
+                               outline=theme.blend("#243044", theme.ACCENT, 0.5), width=1)
+
         cache: ImageCache = self.app.images
-        icon_size = size - ICON_PAD * 2
         source = folder_source(self.folder)
         try:
             photo = cache.photo(source, icon_size)
@@ -227,28 +198,28 @@ class DockWindow:
         if photo is not None:
             self._photos = [photo]
             canvas.create_image(icon_x, icon_height / 2, image=photo)
+
         count = len(self.folder.items)
         if count:
             badge = self._badge(count, size)
             if badge is not None:
                 self._photos.append(badge)
                 canvas.create_image(width - inset - 4, inset + 4, image=badge, anchor="ne")
-        else:
-            pass
+
         if label:
             font = self._label_font()
             baseline = icon_height + label_height / 2
-            # One-pixel shadow keeps the name legible over light wallpapers, where a
-            # pale grey label used to wash out completely.
-            canvas.create_text(
-                icon_x + 1, baseline + 1,
-                text=label, fill="#05070b", font=font,
-                width=width - 2,
-            )
+            # Soft shadow around label for readability on both light and dark backgrounds
+            for ox, oy in ((1, 1), (0, 1), (-1, 0), (1, 0)):
+                canvas.create_text(
+                    icon_x + ox, baseline + oy,
+                    text=label, fill="#05070b", font=font,
+                    width=width - 4,
+                )
             canvas.create_text(
                 icon_x, baseline,
-                text=label, fill=theme.TEXT if self._hover else "#e8eefb",
-                font=font, width=width - 2,
+                text=label, fill=theme.ACCENT if self._hover else "#f0f4fc",
+                font=font, width=width - 4,
             )
         self._resize_window(width, icon_height + label_height)
 
@@ -256,16 +227,6 @@ class DockWindow:
         return theme.font(9, "bold")
 
     def _label_text(self) -> str:
-        """Dock name, shortened only when it cannot be shown in full.
-
-        The measurement used to use font(8) while the label was drawn in
-        font(9, bold), so it systematically under-measured by about 17%:
-        "IA ASSISTENTES" measured 77px but was painted 90px wide, so Tk
-        wrapped it to "IA ASSISTENT..." with the end of the word simply gone.
-        Measuring with the font that actually draws is the only way the answer
-        can be trusted.
-        the only way the answer can be trusted.
-        """
         name = (self.folder.name or "").strip()
         if not name:
             return ""
@@ -284,15 +245,9 @@ class DockWindow:
 
     def _label_space(self) -> int:
         """Pixels available for the name inside the dock window."""
-        return max(24, self._dock_width() - 4)
+        return max(24, self._dock_width() - 14)
 
     def _label_width(self) -> int:
-        """Width the dock window needs so the whole name fits on one line.
-
-        A dock is an icon with a caption, not a fixed square: widening it beats
-        truncating the name, because the name is the only thing telling two
-        docks apart. The icon stays centred over the wider strip.
-        """
         name = (self.folder.name or "").strip()
         size = self._pixel_size()
         if not name:
@@ -301,9 +256,8 @@ class DockWindow:
             measure = tkfont.Font(font=self._label_font(), root=self.app.root).measure
         except (tk.TclError, AttributeError):
             return size
-        # Long names would otherwise stretch a dock across the screen; past that
-        # point the label falls back to an ellipsis, which _label_text handles.
-        return int(min(max(size, measure(name) + 6), size * 2.6))
+        # Generous breathing room (+16px) so labels like "MEU_HUB_WHATSAPP" never hit the edges
+        return int(min(max(size, measure(name) + 16), size * 2.8))
 
     def _dock_width(self) -> int:
         return max(self._pixel_size(), self._label_width())
@@ -312,7 +266,6 @@ class DockWindow:
         return int(18 * (getattr(self.app.monitor_for(self.position()), "scale", 1.0) or 1.0))
 
     def _resize_window(self, width: int, height: int) -> None:
-        """Grow the window downwards so the name has room, keeping the icon in place."""
         try:
             x, y = self.position()
             current_h = self.window.winfo_height()
@@ -328,7 +281,13 @@ class DockWindow:
 
         accent = icon_art.STYLE_COLOURS.get(self.folder.style, "blue")
         diameter = max(18, int(size * 0.30))
-        image = icon_art.self_badge(diameter * 3, count, accent).resize((diameter, diameter))
+        # self_badge draws the circle in the corner of a square layer; crop to the
+        # circle before scaling, or the whole layer shrinks it to a dot.
+        layer = icon_art.self_badge(diameter * 6, count, accent)
+        box = layer.getbbox()
+        if box:
+            layer = layer.crop(box)
+        image = layer.resize((diameter, diameter), Image.LANCZOS)
         try:
             return ImageTk.PhotoImage(image)
         except Exception:
@@ -366,7 +325,7 @@ class DockWindow:
                              self.window.winfo_rootx(), self.window.winfo_rooty())
         self._moved = False
         self.app.dock_pressed(self)
-        self.app.dock_pressed(self)
+
     def _on_motion(self, event) -> None:
         if self._drag_origin is None:
             return
@@ -385,7 +344,6 @@ class DockWindow:
             self.move_to(x, y, snap=True)
             self.app.close_panels(except_dock=self.folder.id)
         else:
-            # Schedule panel toggle with delay to allow double-click detection
             if self._click_job is not None:
                 try:
                     self.app.root.after_cancel(self._click_job)
@@ -395,7 +353,6 @@ class DockWindow:
         self._drag_origin = None
 
     def _on_double_click(self, _event) -> None:
-        # Cancel pending single-click action
         if self._click_job is not None:
             try:
                 self.app.root.after_cancel(self._click_job)
@@ -403,6 +360,7 @@ class DockWindow:
                 pass
             self._click_job = None
         self.app.open_manager(select=self.folder.id)
+
     def _on_context(self, event) -> None:
         self.app.show_dock_menu(self.folder, event.x_root, event.y_root)
 

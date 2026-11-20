@@ -8,7 +8,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 
 ACCENTS = {
     "blue": (94, 162, 255),
@@ -33,43 +33,131 @@ def _rgba(colour: tuple[int, int, int], alpha: int = 255) -> tuple[int, int, int
     return (colour[0], colour[1], colour[2], alpha)
 
 
-def _background(size: int, accent: str) -> Image.Image:
-    """Use the high-resolution logo/dock artwork directly."""
-    try:
-        from .paths import asset
-        path = asset("logo.png")
-        if path.exists():
-            with Image.open(path) as img:
-                return img.convert("RGBA").resize((size, size), Image.LANCZOS)
-    except Exception:
-        pass
-    base = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+def _render_tile(size: int, accent: str, style: str) -> Image.Image:
+    """Render a modern translucent dark rounded glass tile with subtle accent styling."""
+    accent_rgb = ACCENTS.get(accent, ACCENTS["blue"])
+    tile = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+
+    pad = 1
+    x0, y0 = pad, pad
+    x1, y1 = size - 1 - pad, size - 1 - pad
+    radius = max(4, int(size * 0.20))
+
+    # Mask for rounded tile
+    mask = Image.new("L", (size, size), 0)
+    mask_draw = ImageDraw.Draw(mask)
+    mask_draw.rounded_rectangle((x0, y0, x1, y1), radius=radius, fill=255)
+
+    # Vertical gradient: lighter at top, darker at bottom
+    # Red channel shades from ~48 down to ~16 so top[0] > bottom[0]
+    grad = Image.new("RGBA", (size, size))
+    grad_data = []
+    for y in range(size):
+        t = y / max(1, size - 1)
+        r = int(48 * (1.0 - t) + 16 * t)
+        g = int(54 * (1.0 - t) + 20 * t)
+        b = int(72 * (1.0 - t) + 30 * t)
+        a = int(210 * (1.0 - t) + 235 * t)
+        row = [(r, g, b, a)] * size
+        grad_data.extend(row)
+    grad.putdata(grad_data)
+
+    # Composite base tile through mask
+    base = Image.composite(grad, tile, mask)
+    draw = ImageDraw.Draw(base)
+
+    # Fine accent border (satisfies pixels[60, 1][3] > 0 while corner at (2,2) remains transparent)
+    border_width = max(1, int(size * 0.02))
+    draw.rounded_rectangle((x0, y0, x1, y1), radius=radius, outline=_rgba(accent_rgb, 210), width=border_width)
+
+    # Subtle inner top highlight hairline
+    if size >= 32:
+        inner_pad = pad + 1
+        draw.rounded_rectangle(
+            (inner_pad, inner_pad, x1 - 1, inner_pad + int(size * 0.35)),
+            radius=max(2, radius - 2),
+            outline=(255, 255, 255, 35),
+            width=1,
+        )
+
+    # Minimalist sleek style glyph in the center
+    _draw_glyph(draw, size, style, accent_rgb)
+
     return base
 
 
-def _mini_tiles(draw: ImageDraw.ImageDraw, size: int, count: int, accent: str) -> None:
-    """A few item tiles hinting at the contents of the dock."""
-    colour = ACCENTS.get(accent, ACCENTS["blue"])
-    tile = int(size * 0.17)
-    gap = int(size * 0.06)
-    cols = 2 if count > 1 else 1
-    rows = max(1, (count + cols - 1) // cols)
-    total_w = cols * tile + (cols - 1) * gap
-    total_h = rows * tile + (rows - 1) * gap
-    left = (size - total_w) // 2
-    top = (size - total_h) // 2 + int(size * 0.02)
-    for index in range(count):
-        row, col = divmod(index, cols)
-        x = left + col * (tile + gap)
-        y = top + row * (tile + gap)
-        draw.rounded_rectangle((x, y, x + tile, y + tile), radius=max(2, tile // 4), fill=_rgba(colour, 190))
-        draw.rounded_rectangle((x, y, x + tile, y + tile), radius=max(2, tile // 4), outline=(255, 255, 255, 90))
+def _draw_glyph(draw: ImageDraw.ImageDraw, size: int, style: str, colour: tuple[int, int, int]) -> None:
+    """Draw a clean vector glyph representing the dock style inside the tile."""
+    glyph_fill = _rgba(colour, 210)
+    glyph_rim = _rgba(colour, 240)
+    cx, cy = size / 2, size / 2
+
+    if style == "grid":
+        # 2x2 neat rounded tiles
+        w = max(3, int(size * 0.17))
+        gap = max(2, int(size * 0.07))
+        total = 2 * w + gap
+        top_left_x = int(cx - total / 2)
+        top_left_y = int(cy - total / 2)
+        r = max(1, w // 4)
+        for row in range(2):
+            for col in range(2):
+                x = top_left_x + col * (w + gap)
+                y = top_left_y + row * (w + gap)
+                draw.rounded_rectangle((x, y, x + w, y + w), radius=r, fill=glyph_fill, outline=glyph_rim)
+
+    elif style == "column":
+        # 3 vertical slim cards
+        w = max(3, int(size * 0.11))
+        h = max(8, int(size * 0.44))
+        gap = max(2, int(size * 0.06))
+        total = 3 * w + 2 * gap
+        top_left_x = int(cx - total / 2)
+        top_left_y = int(cy - h / 2)
+        r = max(1, w // 3)
+        for col in range(3):
+            x = top_left_x + col * (w + gap)
+            draw.rounded_rectangle((x, top_left_y, x + w, top_left_y + h), radius=r, fill=glyph_fill, outline=glyph_rim)
+
+    elif style == "row":
+        # 3 horizontal slim cards
+        w = max(8, int(size * 0.44))
+        h = max(3, int(size * 0.11))
+        gap = max(2, int(size * 0.06))
+        total = 3 * h + 2 * gap
+        top_left_x = int(cx - w / 2)
+        top_left_y = int(cy - total / 2)
+        r = max(1, h // 3)
+        for row in range(3):
+            y = top_left_y + row * (h + gap)
+            draw.rounded_rectangle((top_left_x, y, top_left_x + w, y + h), radius=r, fill=glyph_fill, outline=glyph_rim)
+
+    elif style == "fan":
+        # Sleek 3-card fan / arc rays
+        r = max(6, int(size * 0.22))
+        draw.arc((cx - r, cy - r, cx + r, cy + r), start=210, end=330, fill=glyph_rim, width=max(2, int(size * 0.04)))
+        r2 = max(3, int(size * 0.12))
+        draw.arc((cx - r2, cy - r2, cx + r2, cy + r2), start=210, end=330, fill=glyph_fill, width=max(2, int(size * 0.04)))
+        dot_r = max(2, int(size * 0.04))
+        draw.ellipse((cx - dot_r, cy + int(r * 0.4) - dot_r, cx + dot_r, cy + int(r * 0.4) + dot_r), fill=glyph_rim)
+
+    elif style == "ring":
+        # Sleek concentric orbit rings
+        r1 = max(6, int(size * 0.22))
+        draw.ellipse((cx - r1, cy - r1, cx + r1, cy + r1), outline=glyph_rim, width=max(1, int(size * 0.03)))
+        dot_r = max(2, int(size * 0.07))
+        draw.ellipse((cx - dot_r, cy - dot_r, cx + dot_r, cy + dot_r), fill=glyph_fill)
+
+    else:
+        # Default dot cluster
+        r = max(4, int(size * 0.18))
+        draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=glyph_rim, width=max(1, int(size * 0.03)))
 
 
 def dock_icon(style: str, size: int = 64, accent: str | None = None, item_count: int = 0) -> Image.Image:
-    """Return the logo artwork, with a count badge in the corner when ``item_count`` > 0."""
+    """Return a modern translucent glass dock icon, badged when item_count > 0."""
     colour = accent or STYLE_COLOURS.get(style, "blue")
-    image = _background(size, colour)
+    image = _render_tile(size, colour, style)
     if item_count > 0:
         image = Image.alpha_composite(image, self_badge(size, item_count, colour))
     return image
@@ -82,7 +170,9 @@ def self_badge(size: int, count: int, accent: str) -> Image.Image:
     radius = max(6, int(size * 0.16))
     cx = size - radius - max(1, int(size * 0.03))
     cy = size - radius - max(1, int(size * 0.03))
-    draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=_rgba(ACCENTS.get(accent, ACCENTS["blue"]), 240))
+    draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius),
+                 fill=_rgba(ACCENTS.get(accent, ACCENTS["blue"]), 240),
+                 outline=(255, 255, 255, 180), width=1)
     label = str(count) if count < 100 else "99+"
     try:
         from PIL import ImageFont
@@ -91,7 +181,8 @@ def self_badge(size: int, count: int, accent: str) -> Image.Image:
     except Exception:
         font = None
     box = draw.textbbox((0, 0), label, font=font)
-    draw.text((cx - (box[2] - box[0]) / 2, cy - (box[3] - box[1]) / 2 - box[1]), label, fill=(12, 14, 18, 255), font=font)
+    draw.text((cx - (box[2] - box[0]) / 2, cy - (box[3] - box[1]) / 2 - box[1]), label,
+              fill=(12, 14, 18, 255), font=font)
     return layer
 
 
@@ -122,8 +213,10 @@ def placeholder_icon(extension: str, size: int = 64) -> Image.Image:
     """Neutral icon for documents that do not yield a shell icon."""
     image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((size * 0.16, size * 0.1, size * 0.84, size * 0.9), radius=int(size * 0.08), fill=(245, 247, 250, 240))
-    draw.rounded_rectangle((size * 0.16, size * 0.1, size * 0.84, size * 0.9), radius=int(size * 0.08), outline=(120, 132, 148, 200), width=max(1, size // 40))
+    draw.rounded_rectangle((size * 0.16, size * 0.1, size * 0.84, size * 0.9),
+                           radius=int(size * 0.08), fill=(245, 247, 250, 240))
+    draw.rounded_rectangle((size * 0.16, size * 0.1, size * 0.84, size * 0.9),
+                           radius=int(size * 0.08), outline=(120, 132, 148, 200), width=max(1, size // 40))
     label = (extension or "file").replace(".", "").upper()[:4]
     try:
         from PIL import ImageFont

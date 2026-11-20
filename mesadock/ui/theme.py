@@ -1,7 +1,7 @@
 """Colours, fonts and ttk styling shared by every window.
 
-The look is a quiet, dark, Windows 11 adjacent surface: deep charcoal panels,
-one accent per dock style, generous padding and no hard borders.
+The look is a quiet, dark, modern Windows 11 adjacent surface: deep charcoal
+panels, one accent per dock style, generous padding and no hard borders.
 """
 from __future__ import annotations
 
@@ -11,17 +11,28 @@ from tkinter import ttk
 # Magic colour that Tk renders as fully transparent (click-through) on Windows.
 TRANSPARENT_KEY = "#06070a"
 
-BG = "#0d1016"
-BG_ELEVATED = "#141922"
-BG_SIDEBAR = "#10141c"
-BG_INPUT = "#1b2230"
-BORDER = "#26303f"
-BORDER_SOFT = "#1e2634"
-TEXT = "#eef2f8"
-TEXT_MUTED = "#93a1b8"
-TEXT_DIM = "#64748b"
-ACCENT = "#5ea2ff"
-ACCENT_SOFT = "#2b4a78"
+# Cohesive dark tokens
+BG = "#0c0f17"
+BG_ELEVATED = "#151b27"
+BG_SIDEBAR = "#0f131d"
+BG_INPUT = "#18202e"
+BG_SURFACE = BG_ELEVATED
+BG_SURFACE_ELEVATED = "#1c2434"
+
+BORDER = "#243044"
+BORDER_SOFT = "#1a2332"
+BORDER_SUBTLE = BORDER_SOFT
+
+TEXT = "#f0f4fc"
+TEXT_PRIMARY = TEXT
+TEXT_MUTED = "#94a3b8"
+TEXT_SECONDARY = TEXT_MUTED
+TEXT_DIM = "#55657e"
+TEXT_DISABLED = TEXT_DIM
+
+ACCENT = "#3b82f6"
+ACCENT_BLUE = ACCENT
+ACCENT_SOFT = "#1e3a66"
 DANGER = "#f87171"
 SUCCESS = "#34d399"
 
@@ -101,7 +112,7 @@ def apply_window_icon(window) -> None:
 
 
 def apply_ttk_theme(root) -> None:
-    """Configure ttk widgets to match the MesaDock palette."""
+    """Configure ttk widgets to match the dark MesaDock palette."""
     style = ttk.Style(root)
     try:
         style.theme_use("clam")
@@ -111,33 +122,57 @@ def apply_ttk_theme(root) -> None:
     root.option_add("*Font", font(10))
     root.option_add("*TearOff", False)
 
+    # Global defaults
     style.configure(".", background=BG, foreground=TEXT, fieldbackground=BG_INPUT, font=font(10))
     style.configure("TFrame", background=BG)
     style.configure("Card.TFrame", background=BG_ELEVATED)
     style.configure("Sidebar.TFrame", background=BG_SIDEBAR)
     style.configure("Panel.TFrame", background=BG_ELEVATED)
 
+    # Labels
     style.configure("TLabel", background=BG, foreground=TEXT, font=font(10))
     style.configure("Card.TLabel", background=BG_ELEVATED, foreground=TEXT)
+    style.configure("Sidebar.TLabel", background=BG_SIDEBAR, foreground=TEXT)
     style.configure("Title.TLabel", background=BG, foreground=TEXT, font=font(18, "bold"))
     style.configure("H2.TLabel", background=BG, foreground=TEXT, font=font(12, "bold"))
     style.configure("CardTitle.TLabel", background=BG_ELEVATED, foreground=TEXT, font=font(11, "bold"))
     style.configure("Muted.TLabel", background=BG, foreground=TEXT_MUTED, font=font(9))
     style.configure("CardMuted.TLabel", background=BG_ELEVATED, foreground=TEXT_MUTED, font=font(9))
+    style.configure("SidebarMuted.TLabel", background=BG_SIDEBAR, foreground=TEXT_MUTED, font=font(9))
     style.configure("Accent.TLabel", background=BG, foreground=ACCENT, font=font(9, "bold"))
 
-    style.configure("TButton", background=BG_INPUT, foreground=TEXT, borderwidth=0, focusthickness=0,
-                    padding=(14, 8), font=font(10))
+    # Buttons
+    style.configure("TButton", background=BG_INPUT, foreground=TEXT, borderwidth=0, relief="flat",
+                    focusthickness=0, padding=(12, 6), font=font(10))
     style.map("TButton",
               background=[("active", lighten(BG_INPUT, 0.08)), ("disabled", BG_ELEVATED)],
               foreground=[("disabled", TEXT_DIM)])
-    style.configure("Accent.TButton", background=ACCENT, foreground="#08111f", font=font(10, "bold"), padding=(16, 8))
-    style.map("Accent.TButton", background=[("active", lighten(ACCENT, 0.12)), ("disabled", ACCENT_SOFT)])
-    style.configure("Ghost.TButton", background=BG, foreground=TEXT_MUTED, padding=(10, 6))
-    style.map("Ghost.TButton", background=[("active", BG_ELEVATED)], foreground=[("active", TEXT)])
-    style.configure("Danger.TButton", background=BG_INPUT, foreground=DANGER, padding=(10, 6))
-    style.map("Danger.TButton", background=[("active", "#3a1d22")])
 
+    style.configure("Accent.TButton", background=ACCENT, foreground="#08111f", font=font(10, "bold"),
+                    padding=(14, 6), borderwidth=0, relief="flat", focusthickness=0)
+    style.map("Accent.TButton",
+              background=[("active", lighten(ACCENT, 0.12)), ("disabled", ACCENT_SOFT)],
+              foreground=[("disabled", TEXT_DIM)])
+
+    style.configure("Ghost.TButton", background=BG, foreground=TEXT_MUTED, padding=(10, 6),
+                    borderwidth=0, relief="flat", focusthickness=0)
+    style.map("Ghost.TButton",
+              background=[("active", BG_ELEVATED)],
+              foreground=[("active", TEXT)])
+
+    style.configure("Danger.TButton", background=BG_INPUT, foreground=DANGER, padding=(10, 6),
+                    borderwidth=0, relief="flat", focusthickness=0)
+    style.map("Danger.TButton",
+              background=[("active", "#3a1d22")],
+              foreground=[("active", lighten(DANGER, 0.1))])
+
+    style.configure("SmallGhost.TButton", background=BG_ELEVATED, foreground=TEXT_MUTED,
+                    padding=(6, 3), font=font(9), borderwidth=0, relief="flat", focusthickness=0)
+    style.map("SmallGhost.TButton",
+              background=[("active", lighten(BG_ELEVATED, 0.08))],
+              foreground=[("active", TEXT)])
+
+    # Checkbuttons & Radiobuttons
     style.configure("TCheckbutton", background=BG, foreground=TEXT, focuscolor=BG)
     style.map("TCheckbutton", background=[("active", BG)], foreground=[("active", ACCENT)])
     style.configure("Card.TCheckbutton", background=BG_ELEVATED, foreground=TEXT, focuscolor=BG_ELEVATED)
@@ -147,18 +182,31 @@ def apply_ttk_theme(root) -> None:
     style.configure("Card.TRadiobutton", background=BG_ELEVATED, foreground=TEXT)
     style.map("Card.TRadiobutton", background=[("active", BG_ELEVATED)])
 
+    # Entry & Spinbox
     style.configure("TEntry", fieldbackground=BG_INPUT, foreground=TEXT, insertcolor=TEXT,
-                    borderwidth=0, padding=(8, 7))
+                    borderwidth=0, relief="flat", padding=(8, 7), font=font(10))
     style.configure("TSpinbox", fieldbackground=BG_INPUT, foreground=TEXT, arrowcolor=TEXT_MUTED,
-                    borderwidth=0, padding=(6, 6))
+                    borderwidth=0, relief="flat", padding=(6, 6))
+
+    # Combobox (dark field and dark dropdown)
     style.configure("TCombobox", fieldbackground=BG_INPUT, background=BG_INPUT, foreground=TEXT,
-                    arrowcolor=TEXT_MUTED, borderwidth=0, padding=(8, 6))
-    style.map("TCombobox", fieldbackground=[("readonly", BG_INPUT)], foreground=[("readonly", TEXT)])
+                    arrowcolor=TEXT_MUTED, borderwidth=0, darkcolor=BORDER_SOFT,
+                    lightcolor=BORDER_SOFT, bordercolor=BORDER_SOFT, padding=(8, 6), font=font(10))
+    style.map("TCombobox",
+              fieldbackground=[("readonly", BG_INPUT), ("active", lighten(BG_INPUT, 0.04))],
+              foreground=[("readonly", TEXT)],
+              selectbackground=[("readonly", BG_INPUT)],
+              selectforeground=[("readonly", TEXT)])
     root.option_add("*TCombobox*Listbox.background", BG_INPUT)
     root.option_add("*TCombobox*Listbox.foreground", TEXT)
-    root.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
-    root.option_add("*TCombobox*Listbox.selectForeground", "#08111f")
+    root.option_add("*TCombobox*Listbox.selectBackground", ACCENT_SOFT)
+    root.option_add("*TCombobox*Listbox.selectForeground", TEXT)
+    root.option_add("*TCombobox*Listbox.borderWidth", 0)
+    root.option_add("*TCombobox*Listbox.highlightThickness", 1)
+    root.option_add("*TCombobox*Listbox.highlightColor", BORDER)
+    root.option_add("*TCombobox*Listbox.font", font(10))
 
+    # Scales
     style.configure("TScale", background=BG, troughcolor=BG_INPUT, bordercolor=BG_INPUT,
                     lightcolor=ACCENT, darkcolor=ACCENT)
     style.configure("Card.TScale", background=BG_ELEVATED, troughcolor=BG_INPUT)
@@ -170,21 +218,32 @@ def apply_ttk_theme(root) -> None:
 
     style.configure("TSeparator", background=BORDER_SOFT)
 
+    # Treeview (rowheight 32, no hard borders, soft accent selection, discreet heading)
     style.configure("Treeview", background=BG_ELEVATED, fieldbackground=BG_ELEVATED, foreground=TEXT,
-                    borderwidth=0, rowheight=30, font=font(10))
+                    borderwidth=0, rowheight=32, font=font(10), bordercolor=BORDER_SOFT,
+                    lightcolor=BG_ELEVATED, darkcolor=BG_ELEVATED)
     style.configure("Treeview.Heading", background=BG_SIDEBAR, foreground=TEXT_MUTED, borderwidth=0,
-                    font=font(9, "bold"), padding=(8, 8))
+                    relief="flat", font=font(9, "bold"), padding=(10, 8))
     style.map("Treeview", background=[("selected", ACCENT_SOFT)], foreground=[("selected", TEXT)])
     style.map("Treeview.Heading", background=[("active", BG_ELEVATED)])
 
-    style.configure("TNotebook", background=BG, borderwidth=0, tabmargins=(0, 0, 0, 0))
-    style.configure("TNotebook.Tab", background=BG, foreground=TEXT_MUTED, padding=(16, 9),
-                    borderwidth=0, font=font(10))
+    # Notebook & Tabs (flat tabs, active tab with accent text)
+    style.configure("TNotebook", background=BG, borderwidth=0, tabmargins=(0, 0, 0, 0),
+                    darkcolor=BG, lightcolor=BG, bordercolor=BORDER_SOFT)
+    style.configure("TNotebook.Tab", background=BG, foreground=TEXT_MUTED, padding=(18, 9),
+                    borderwidth=0, font=font(10), bordercolor=BG,
+                    lightcolor=BG, darkcolor=BG)
     style.map("TNotebook.Tab",
-              background=[("selected", BG_ELEVATED)],
-              foreground=[("selected", TEXT)])
+              background=[("selected", BG_ELEVATED), ("active", lighten(BG, 0.04))],
+              foreground=[("selected", ACCENT), ("active", TEXT)],
+              bordercolor=[("selected", BORDER_SOFT), ("!selected", BG)],
+              lightcolor=[("selected", BG_ELEVATED), ("!selected", BG)])
 
-    style.configure("Vertical.TScrollbar", background=BG_ELEVATED, troughcolor=BG,
-                    borderwidth=0, arrowcolor=TEXT_MUTED)
+    # Thin dark Scrollbars
+    for sb in ("Vertical.TScrollbar", "Horizontal.TScrollbar", "TScrollbar"):
+        style.configure(sb, background="#2a3547", troughcolor=BG, borderwidth=0,
+                        arrowcolor=TEXT_MUTED, darkcolor=BG, lightcolor=BG,
+                        bordercolor=BG, gripcount=0, arrowsize=11)
+        style.map(sb, background=[("active", "#3f4d66"), ("disabled", BG)])
 
     return style
