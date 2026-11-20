@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .core import archive as archive_mod
 from .core import paths
-from .core.models import DockFolder, DockItem
+from .core.models import DockFolder
 from .core.store import Store
 from .win32 import desktop, dpi, monitors, shell
 

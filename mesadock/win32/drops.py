@@ -19,7 +19,7 @@ import time
 from ctypes import wintypes
 from typing import Callable
 
-from . import desktop_enabled, shell
+from . import desktop_enabled
 from .desktop import top_level_hwnd
 
 DROPEFFECT_COPY = 1

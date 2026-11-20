@@ -1,24 +1,27 @@
 """Application controller: owns the store, the dock windows and the panels."""
 from __future__ import annotations
-from PIL import Image, ImageTk
 
 import logging
 import time
 import queue
 import tkinter as tk
+from typing import TYPE_CHECKING
 from pathlib import Path
 
 from ..core import archive as archive_mod
 from ..core import layout as layout_mod
 from ..core import paths
 from ..core.i18n import set_lang, tr
-from ..core.models import DockFolder, DockItem, Profile
+from ..core.models import DockFolder, DockItem
 from ..core.store import Store
 from ..win32 import desktop, monitors, shell
 from ..win32 import desktop_enabled
 from . import theme
 from .images import ImageCache
 from .panel import Panel
+
+if TYPE_CHECKING:
+    from .dockwindow import DockWindow
 
 
 class MesaDockApp:
@@ -823,7 +826,6 @@ class MesaDockApp:
 
     def emergency_restore_all(self) -> int:
         """Put every archived desktop item back (uninstall-time safety net)."""
-        archiver = archive_mod.Archiver(self.store.active_profile.name, self.store.settings.archive_mode)
         restored = 0
         for profile in self.store.profiles:
             local = archive_mod.Archiver(profile.name, self.store.settings.archive_mode)

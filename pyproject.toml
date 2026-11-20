@@ -45,3 +45,12 @@ include = ["mesadock*"]
 testpaths = ["tests"]
 addopts = "-q"
 filterwarnings = ["error::DeprecationWarning:mesadock.*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+# Erros reais apenas: sintaxe (E9) e pyflakes (F: imports e variaveis sem uso,
+# nomes indefinidos). Estilo nao bloqueia o CI.
+select = ["E9", "F"]

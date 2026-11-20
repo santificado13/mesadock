@@ -362,7 +362,6 @@ def test_drops_declares_ole_prototypes():
     """CLSIDFromString/RegisterDragDrop/ReleaseStgMedium were undeclared: a
     truncated GUID out-param wrote 16 bytes to a bogus address (BEX64)."""
     import ctypes
-    import ctypes.wintypes as wintypes
 
     from mesadock.win32 import drops
 

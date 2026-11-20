@@ -7,7 +7,6 @@ Removing an item (or uninstalling) puts the original back where it came from.
 """
 from __future__ import annotations
 
-import functools
 import shutil
 import time
 from dataclasses import dataclass

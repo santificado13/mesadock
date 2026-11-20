@@ -372,12 +372,8 @@ def extract_icon_jumbo(path: str):
         return None
     _declare_icon_signatures()
     try:
-        from PIL import Image
-
         SHGFI_SYSICONINDEX = 0x000004000
-        SHGFI_ICON = 0x000000100
         SHIL_JUMBO = 0x4
-        SHIL_EXTRALARGE = 0x2
         ILD_TRANSPARENT = 0x00000001
 
         class SHFILEINFO(ctypes.Structure):
@@ -436,7 +432,6 @@ def extract_icon_with_shell(path: str, size: int = 64) -> bytes | None:
         return None
     _declare_icon_signatures()
     try:
-        from PIL import Image
 
         class SHFILEINFO(ctypes.Structure):
             _fields_ = [

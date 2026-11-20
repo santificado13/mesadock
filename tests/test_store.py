@@ -98,7 +98,7 @@ def test_folders_are_isolated_per_profile(store):
 
 
 def test_move_folder_reorders_and_clamps(store):
-    a = store.add_folder(DockFolder(name="a"))
+    store.add_folder(DockFolder(name="a"))
     b = store.add_folder(DockFolder(name="b"))
     store.move_folder(b.id, -1)
     assert [f.name for f in store.folders] == ["b", "a"]
