@@ -416,3 +416,54 @@ def test_hover_repaints_only_from_the_cached_resting_picture(home, tk_available)
         assert panel._image.tobytes() == first, "the same hover always paints the same picture"
     finally:
         app.quit()
+
+
+def test_dock_tiles_follow_the_opacity_setting(home, tk_available):
+    """Settings > Opacity makes the tile glass more or less solid; the glyph,
+    the border and the count badge stay fully visible."""
+    app, folder = _app(home)
+    try:
+        dock = app.docks[folder.id]
+        size = dock._pixel_size()
+        # a spot of bare glass: inside the tile, away from the glyph in the middle
+        glass = (dock._dock_width() // 2 - (size - 16) // 2 + 6, size // 2)
+        seen = {}
+        for opacity in (1.0, 0.35):
+            app.store.settings.panel_opacity = opacity
+            app.apply_settings()
+            assert dock._tile_source().endswith(":" + str(int(opacity * 100)))
+            seen[opacity] = dock._image.getpixel(glass)[3]
+        assert seen[1.0] >= 235
+        assert 70 <= seen[0.35] <= 110, seen
+        middle = dock._image.crop((dock._dock_width() // 2 - size // 5, size // 2 - size // 5,
+                                   dock._dock_width() // 2 + size // 5, size // 2 + size // 5))
+        assert middle.getchannel("A").getextrema()[1] > 200, "the glyph stays visible on a see-through tile"
+
+        app.store.settings.panel_background = "solid"
+        app.apply_settings()
+        assert dock._image.getpixel(glass)[3] >= 235, "solid background ignores the slider"
+    finally:
+        app.quit()
+
+
+def test_a_custom_dock_picture_is_not_faded(home, tk_available, tmp_path):
+    app, folder = _app(home)
+    try:
+        picture = tmp_path / "mine.png"
+        Image.new("RGBA", (64, 64), (200, 30, 30, 255)).save(picture)
+        app.set_dock_icon(folder.id, str(picture))
+        app.store.settings.panel_opacity = 0.35
+        app.apply_settings()
+        dock = app.docks[folder.id]
+        assert dock._tile_source() == str(picture)
+        assert dock._image.getpixel((dock._dock_width() // 2, dock._pixel_size() // 2))[3] == 255
+    finally:
+        app.quit()
+
+
+def test_glyph_source_accepts_an_empty_accent_and_an_opacity():
+    solid = icons.dock_icon("grid", 64, opacity=1.0)
+    faint = icons.dock_icon("grid", 64, opacity=0.35)
+    spot = (10, 32)  # bare glass, left of the glyph
+    assert solid.getpixel(spot)[3] > 230 and 70 <= faint.getpixel(spot)[3] <= 110
+    assert faint.getpixel((32, 1))[3] > 150, "the border does not fade with the glass"

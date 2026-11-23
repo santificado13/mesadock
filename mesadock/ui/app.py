@@ -1126,6 +1126,17 @@ class MesaDockApp:
             self.switch_profile(self.store.active_profile_index)
 
     # -- settings ----------------------------------------------------------
+    def surface_opacity(self) -> float:
+        """How solid docks and panels are: Settings > Panel look > Opacity (0.35..1)."""
+        settings = self.store.settings
+        if settings.panel_background == "solid":
+            return 1.0
+        try:
+            value = float(settings.panel_opacity)
+        except (TypeError, ValueError):
+            value = 0.92
+        return max(0.35, min(1.0, value))
+
     def apply_settings(self) -> None:
         settings = self.store.settings
         for dock in self.docks.values():

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import tkinter as tk
 
-from PIL import Image, ImageFilter, ImageTk
+from PIL import Image, ImageChops, ImageFilter, ImageTk
 
 from ..core import icons as icon_art
 from ..core import layout as layout_mod
@@ -244,16 +244,25 @@ class DockWindow:
 
         cache: ImageCache = self.app.images
         try:
-            icon = cache.pillow(folder_source(self.folder), icon_size).convert("RGBA")
+            icon = cache.pillow(self._tile_source(), icon_size).convert("RGBA")
         except Exception:
             icon = None
         if icon is not None:
             # Shadow in the shape of the icon itself, so custom artwork gets one too.
-            silhouette = Image.new("RGBA", (width, size), (0, 0, 0, 0))
+            # It is as dark for a see-through tile as for a solid one, and it is
+            # cut out under the icon: showing through, it would cancel the opacity.
+            body = icon.getchannel("A").point(lambda v: min(255, v * 4))
             dark = Image.new("RGBA", icon.size, (0, 0, 0, 0))
-            dark.putalpha(icon.getchannel("A").point(lambda v: int(v * 0.42)))
+            dark.putalpha(body.point(lambda v: int(v * 0.42)))
+            silhouette = Image.new("RGBA", (width, size), (0, 0, 0, 0))
             paint.paste_centre(silhouette, dark, (cx, cy + max(2, icon_size * 0.05)))
-            image.alpha_composite(silhouette.filter(ImageFilter.GaussianBlur(max(2.0, icon_size * 0.05))))
+            silhouette = silhouette.filter(ImageFilter.GaussianBlur(max(2.0, icon_size * 0.05)))
+            solid = Image.new("RGBA", icon.size, (0, 0, 0, 0))
+            solid.putalpha(body)
+            under = Image.new("RGBA", (width, size), (0, 0, 0, 0))
+            paint.paste_centre(under, solid, (cx, cy))
+            silhouette.putalpha(ImageChops.subtract(silhouette.getchannel("A"), under.getchannel("A")))
+            image.alpha_composite(silhouette)
             paint.paste_centre(image, icon, (cx, cy))
 
         count = len(self.folder.items)
@@ -272,10 +281,26 @@ class DockWindow:
             pill_fill = paint.mix(LABEL_PILL_HOVER, accent, 0.10) if self._hover else paint.rgba(LABEL_PILL)[:3]
             image.alpha_composite(paint.rounded(
                 (width, height), (cx - half_w, centre_y - pill_h / 2, cx + half_w, centre_y + pill_h / 2),
-                pill_h / 2, fill=paint.rgba(pill_fill, 228),
+                pill_h / 2, fill=paint.rgba(pill_fill, self._pill_alpha()),
                 outline=paint.rgba(accent, 170) if self._hover else None, width=1))
             paint.draw_text(image, (cx, centre_y - 1), text, face, paint.rgba("#f5f7fb"))
         return image
+
+    def _tile_source(self) -> str:
+        """Icon source for the desktop tile: the built-in glyph is rendered as
+        solid as Settings > Opacity asks; a picture the user chose is left as is."""
+        source = folder_source(self.folder)
+        if not source.startswith("glyph:"):
+            return source
+        parts = source.split(":")
+        accent = parts[2] if len(parts) > 2 else ""
+        percent = int(round(self.app.surface_opacity() * 100))
+        return "glyph:" + parts[1] + ":" + accent + ":" + str(percent)
+
+    def _pill_alpha(self) -> int:
+        """The name plate follows the same opacity, but never so far that the
+        white name stops being readable on a light wallpaper."""
+        return int(255 * max(0.55, min(0.9, self.app.surface_opacity())))
 
     def _dpi(self) -> float:
         """DPI of the monitor the dock is on (Tk only knows the primary one)."""

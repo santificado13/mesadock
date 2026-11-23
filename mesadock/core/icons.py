@@ -47,8 +47,13 @@ def _rgba(colour: tuple[int, int, int], alpha: int = 255) -> tuple[int, int, int
     return (colour[0], colour[1], colour[2], alpha)
 
 
-def _render_tile(size: int, accent: str, style: str) -> Image.Image:
-    """Render a modern translucent dark rounded glass tile with subtle accent styling."""
+def _render_tile(size: int, accent: str, style: str, opacity: float = 0.92) -> Image.Image:
+    """Render a dark rounded glass tile with subtle accent styling.
+
+    ``opacity`` (0..1) is how solid the glass is; the border and the glyph stay
+    fully visible whatever it is.
+    """
+    opacity = max(0.0, min(1.0, float(opacity)))
     accent_rgb = ACCENTS.get(accent, ACCENTS["blue"])
     tile = Image.new("RGBA", (size, size), (0, 0, 0, 0))
 
@@ -71,7 +76,8 @@ def _render_tile(size: int, accent: str, style: str) -> Image.Image:
         r = int(48 * (1.0 - t) + 16 * t)
         g = int(54 * (1.0 - t) + 20 * t)
         b = int(72 * (1.0 - t) + 30 * t)
-        a = int(210 * (1.0 - t) + 235 * t)
+        # a touch more see-through at the top; 210..235 at the default 0.92
+        a = int(255 * opacity * (0.895 + 0.105 * t))
         row = [(r, g, b, a)] * size
         grad_data.extend(row)
     grad.putdata(grad_data)
@@ -183,7 +189,7 @@ def _draw_glyph(draw: ImageDraw.ImageDraw, size: int, style: str, colour: tuple[
 
 
 def dock_icon(style: str, size: int = 64, accent: str | None = None, item_count: int = 0,
-              dock_index: int = 1) -> Image.Image:
+              dock_index: int = 1, opacity: float = 0.92) -> Image.Image:
     """Return a modern translucent glass dock icon, badged when item_count > 0.
 
     ``dock_index`` is accepted for older callers and no longer drawn.
@@ -191,7 +197,7 @@ def dock_icon(style: str, size: int = 64, accent: str | None = None, item_count:
     colour = accent or STYLE_COLOURS.get(style, "blue")
     # Pillow shapes are not anti-aliased: draw the tile larger and reduce it.
     scale = 4 if size <= 96 else (3 if size <= 160 else 2)
-    image = _render_tile(size * scale, colour, style).resize((size, size), Image.LANCZOS)
+    image = _render_tile(size * scale, colour, style, opacity).resize((size, size), Image.LANCZOS)
     if item_count > 0:
         image = Image.alpha_composite(image, self_badge(size, item_count, colour))
     return image

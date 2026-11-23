@@ -105,17 +105,10 @@ class Panel:
 
     def _background_alpha(self) -> int:
         """Alpha of the card itself; icons and names stay fully opaque."""
-        settings = self.app.store.settings
-        if settings.panel_background == "solid":
-            return 255
-        try:
-            opacity = float(settings.panel_opacity)
-        except (TypeError, ValueError):
-            opacity = 0.92
         # The same for every style. Ring and fan open on top of their own dock,
         # which would show through the disc: the dock hides itself meanwhile
         # (see covers_dock) instead of the disc ignoring this setting.
-        return int(255 * max(0.35, min(1.0, opacity)))
+        return int(255 * self.app.surface_opacity())
 
     def covers_dock(self) -> bool:
         """True while this panel's disc really sits on top of its own dock.

@@ -66,9 +66,14 @@ class ImageCache:
 
     def _render(self, source: str, size: int) -> Image.Image:
         if source.startswith("glyph:"):
-            # "glyph:<style>" or "glyph:<style>:<accent>"
+            # "glyph:<style>[:<accent>[:<opacity percent>]]"; an empty accent follows the style
             parts = source.split(":")
-            return icon_art.dock_icon(parts[1], size, accent=parts[2] if len(parts) > 2 else None, item_count=0)
+            accent = parts[2] if len(parts) > 2 and parts[2] else None
+            try:
+                opacity = int(parts[3]) / 100.0 if len(parts) > 3 else 0.92
+            except ValueError:
+                opacity = 0.92
+            return icon_art.dock_icon(parts[1], size, accent=accent, item_count=0, opacity=opacity)
         path = source
         if path and Path(path).exists():
             if path.lower().endswith(".ico"):

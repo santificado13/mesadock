@@ -11,6 +11,9 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
   apresentados com alfa real (UpdateLayeredWindow). Bordas lisas em qualquer
   papel de parede, sombra suave e fundo do painel de fato translúcido. Se o
   Windows recusar, volta ao modo antigo com cor-chave.
+- **A opacidade das Configurações vale também para as docks:** o vidro do
+  ícone e a pílula do nome acompanham o mesmo controle do painel; o desenho,
+  a borda e o contador continuam nítidos. Imagens escolhidas por você não mudam.
 - **Aparência por dock** no Gerenciador: cor de destaque (7 cores ou
   automática), tamanho (Pequeno, Médio, Grande) e "Tingir os ícones".
 - **Animações:** o painel surge com fade e um leve deslize e some com fade,
