@@ -28,11 +28,11 @@ MOD_ALT = 0x0001
 MOD_CONTROL = 0x0002
 MOD_SHIFT = 0x0004
 MOD_NOREPEAT = 0x4000
-VK_SPACE = 0x20
 # id -> (modifiers, virtual key, MesaDockApp method, label for the log and menus)
 HOTKEYS = {
     HOTKEY_MANAGER_ID: (MOD_CONTROL | MOD_SHIFT, ord("M"), "open_manager", "Ctrl+Shift+M"),
-    2: (MOD_CONTROL | MOD_ALT, VK_SPACE, "open_search", "Ctrl+Alt+Space"),
+    # Not Ctrl+Alt+Space: other launchers (Claude desktop, for one) register it.
+    2: (MOD_CONTROL | MOD_ALT, ord("B"), "open_search", "Ctrl+Alt+B"),
     # F and H are free under AltGr on ABNT2 and US-International; D types a
     # character there (Ctrl+Alt is AltGr) and the hotkey would swallow it.
     3: (MOD_CONTROL | MOD_ALT, ord("F"), "toggle_peek", "Ctrl+Alt+F"),

@@ -11,7 +11,7 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
   ("+ Dock de pasta" no Gerenciador ou "Nova dock de pasta..." na bandeja).
   Só lê a pasta, nunca a altera; se a pasta ficar indisponível, os itens e os
   ícones personalizados são mantidos.
-- **Busca rápida** (Ctrl+Alt+Espaço): acha e abre qualquer item de qualquer
+- **Busca rápida** (Ctrl+Alt+B): acha e abre qualquer item de qualquer
   dock digitando parte do nome, sem diferenciar acentos ou maiúsculas.
 - **Trazer para a frente** (Ctrl+Alt+F): mostra as docks por cima das janelas.
 - **Ocultar docks** (Ctrl+Alt+H ou duplo clique no papel de parede; o duplo
