@@ -26,6 +26,7 @@ STYLE_COLOURS = {
     "row": "violet",
     "fan": "amber",
     "ring": "rose",
+    "portal": "lime",
 }
 
 
@@ -147,6 +148,16 @@ def _draw_glyph(draw: ImageDraw.ImageDraw, size: int, style: str, colour: tuple[
         draw.ellipse((cx - r1, cy - r1, cx + r1, cy + r1), outline=glyph_rim, width=max(1, int(size * 0.03)))
         dot_r = max(2, int(size * 0.07))
         draw.ellipse((cx - dot_r, cy - dot_r, cx + dot_r, cy + dot_r), fill=glyph_fill)
+
+    elif style == "portal":
+        # Folder silhouette: a tab on top of a rounded body
+        w = max(12, int(size * 0.50))
+        h = max(9, int(size * 0.34))
+        x0, y0 = int(cx - w / 2), int(cy - h / 2 + size * 0.03)
+        tab_w, tab_h = int(w * 0.42), max(3, int(size * 0.08))
+        r = max(2, int(size * 0.05))
+        draw.rounded_rectangle((x0, y0 - tab_h, x0 + tab_w, y0 + r), radius=r, fill=glyph_rim)
+        draw.rounded_rectangle((x0, y0, x0 + w, y0 + h), radius=r, fill=glyph_fill, outline=glyph_rim)
 
     else:
         # Default dot cluster

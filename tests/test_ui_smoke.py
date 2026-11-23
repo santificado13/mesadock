@@ -5,6 +5,7 @@ data folder is temporary, but real Tk windows are created when a display exists.
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -482,5 +483,96 @@ def test_item_icon_can_be_set_replaced_and_reset(home, tk_available, tmp_path):
         text_file.write_text("x", encoding="utf-8")
         assert not app.set_item_icon(folder.id, item.id, str(text_file))
         assert item.icon == ""
+    finally:
+        app.quit()
+
+
+def test_folder_dock_mirrors_its_folder_and_is_read_only(home, tk_available, tmp_path):
+    from mesadock.core import portal
+
+    source = tmp_path / "Docs"
+    source.mkdir()
+    (source / "a.txt").write_text("a", encoding="utf-8")
+    app, _folder = _make_app(home, tk_available)
+    try:
+        dock = app.add_portal(str(source))
+        app.root.update()
+        assert dock.portal == str(source) and dock.name == "Docs"
+        assert [item.name for item in dock.items] == ["a.txt"]
+        assert dock.id in app.docks
+
+        # A new file reaches the dock through the same path the watcher uses.
+        (source / "b.txt").write_text("b", encoding="utf-8")
+        app._portal_changed(dock.id, dock.portal, portal.signature(source), portal.scan(source))
+        assert [item.name for item in dock.items] == ["a.txt", "b.txt"]
+
+        # The dock never changes the folder: adding and removing are refused.
+        assert app.add_paths_to_dock(dock.id, [str(tmp_path / "x.lnk")]) == 0
+        app.remove_item(dock.id, dock.items[0].id)
+        assert len(dock.items) == 2 and (source / "a.txt").exists()
+
+        # Folder gone (drive unplugged): the dock keeps its items and their ids.
+        ids = [item.id for item in dock.items]
+        app._portal_changed(dock.id, dock.portal, ("<unavailable>",), None)
+        assert [item.id for item in dock.items] == ids
+    finally:
+        app.quit()
+
+
+def test_hide_and_peek_toggle_every_dock(home, tk_available, monkeypatch):
+    app, folder = _make_app(home, tk_available)
+    try:
+        dock = app.docks[folder.id]
+        left, top, _w, _h = dock.rect()
+        assert dock.contains_point(left + 2, top + 2)
+
+        app.set_docks_hidden(True)
+        app.root.update()
+        assert app.docks_hidden and dock.window.state() == "withdrawn"
+        assert not dock.contains_point(left + 2, top + 2)  # a hidden dock must not open on hover
+
+        # A dock created or refreshed while hidden must stay hidden: placing it on
+        # the desktop layer shows the window, which brought hidden docks back.
+        from mesadock.win32 import desktop as desktop_mod
+
+        shown = []
+        monkeypatch.setattr(desktop_mod, "sit_above_desktop", lambda hwnd: shown.append(hwnd) or True)
+        app.store.settings.attach_to_desktop = True
+        extra = app.add_dock("Later", "grid")
+        dock.refresh()
+        end = time.time() + 0.25
+        while time.time() < end:
+            app.root.update()
+        assert shown == []
+        assert app.docks[extra.id].window.state() == "withdrawn" and dock.window.state() == "withdrawn"
+
+        app.set_peek(True)  # asking for the docks brings them back
+        app.root.update()
+        assert app.peek_active and not app.docks_hidden
+        assert dock.window.state() == "normal" and not dock._on_desktop_layer()
+
+        app.toggle_peek()
+        assert not app.peek_active
+    finally:
+        app.quit()
+
+
+def test_search_window_finds_and_launches(home, tk_available, monkeypatch):
+    app, folder = _make_app(home, tk_available)
+    try:
+        launched = []
+        monkeypatch.setattr(app, "launch_item", lambda dock, item: launched.append((dock.id, item.name)))
+        app.open_search()
+        app.root.update()
+        window = app.search
+        assert window is not None and window.is_alive()
+        window.query.set("note")
+        assert [hit.item.name for hit in window.hits] == ["Notepad"]
+        window._launch()
+        assert launched == [(folder.id, "Notepad")]
+        assert app.search is None  # closes after launching
+        app.open_search()
+        app.open_search()  # the hotkey again closes it
+        assert app.search is None
     finally:
         app.quit()

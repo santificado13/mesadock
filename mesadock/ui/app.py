@@ -11,6 +11,7 @@ from pathlib import Path
 from ..core import archive as archive_mod
 from ..core import layout as layout_mod
 from ..core import paths
+from ..core import portal as portal_mod
 from ..core.i18n import set_lang, tr
 from ..core.models import DockFolder, DockItem
 from ..core.store import Store
@@ -52,6 +53,13 @@ class MesaDockApp:
         self._running = True
         self._monitor_cache: list = []
         self._monitor_cache_at = 0.0
+        self.peek_active = False
+        self.docks_hidden = False
+        self.search = None
+        self._portal_signatures: dict[str, tuple] = {}
+        self._portal_thread = None
+        self._lbutton_down = False
+        self._last_desktop_click: tuple[float, int, int] | None = None
 
     # -- monitors ----------------------------------------------------------
     def monitors(self, refresh: bool = False):
@@ -107,6 +115,7 @@ class MesaDockApp:
         self.start_tray()
         self.start_show_watcher()
         self.watch_monitors()
+        self.start_portal_watcher()
         if not (self.store.settings.start_minimized if minimized is None else minimized):
             self.open_manager()
         self.root.protocol("WM_DELETE_WINDOW", lambda: self.quit("main window closed"))
@@ -243,6 +252,8 @@ class MesaDockApp:
                 from .dockwindow import DockWindow
 
                 self.docks[folder.id] = DockWindow(self, folder)
+                if self.docks_hidden:
+                    self.docks[folder.id].set_hidden(True)
             else:
                 dock.folder = folder
                 dock.refresh()
@@ -281,6 +292,185 @@ class MesaDockApp:
         self.sync_docks()
         return folder
 
+    # -- folder portals ----------------------------------------------------
+    def prompt_new_portal(self, parent=None) -> DockFolder | None:
+        """Ask for a folder and create a dock that mirrors it."""
+        from tkinter import filedialog
+
+        path = filedialog.askdirectory(parent=parent or self.root, mustexist=True,
+                                       title=tr("Choose the folder this dock will show"))
+        if not path:
+            return None
+        return self.add_portal(path)
+
+    def add_portal(self, path: str, name: str | None = None) -> DockFolder:
+        path = str(Path(path))
+        folder = self.add_dock(name or portal_mod.default_name(path), "grid")
+        folder.portal = path
+        self._portal_signatures[folder.id] = portal_mod.signature(path)
+        portal_mod.sync_items(folder)
+        self.touch()
+        self._refresh_dock_views(folder.id)
+        return folder
+
+    def set_portal_folder(self, folder_id: str, parent=None) -> None:
+        from tkinter import filedialog
+
+        folder = self.store.folder_by_id(folder_id)
+        if folder is None or not folder.portal:
+            return
+        path = filedialog.askdirectory(parent=parent or self.root, mustexist=True, initialdir=folder.portal,
+                                       title=tr("Choose the folder this dock will show"))
+        if not path:
+            return
+        folder.portal = str(Path(path))
+        self._portal_signatures[folder.id] = portal_mod.signature(folder.portal)
+        portal_mod.sync_items(folder)
+        self.touch()
+        self._refresh_dock_views(folder.id)
+
+    def open_portal_folder(self, folder: DockFolder) -> None:
+        if not shell.launch(folder.portal):
+            self.notify(tr("Could not open ") + folder.portal, error=True)
+
+    def _refresh_dock_views(self, folder_id: str) -> None:
+        dock = self.docks.get(folder_id)
+        if dock is not None:
+            dock.refresh()
+        panel = self.panels.get(folder_id)
+        if panel is not None:
+            panel.rebuild()
+        if self.manager is not None and self.manager.is_alive():
+            self.manager.refresh_docks()
+            if self.manager.selected_id == folder_id:
+                self.manager.select_folder(folder_id)
+
+    def start_portal_watcher(self) -> None:
+        """Refresh portal docks now, then watch their folders in the background.
+
+        The folders are read on a worker thread: a sleeping drive or an offline
+        network share can take seconds to answer, and that must never freeze the
+        docks. Only the result is handed to the Tk thread.
+        """
+        import threading
+
+        # No scan here: the worker's first pass does it, so a slow share cannot
+        # delay start-up. Until then the dock shows the items saved last time.
+        if self._portal_thread is None:
+            self._portal_thread = threading.Thread(target=self._watch_portals, name="mesadock-portals", daemon=True)
+            self._portal_thread.start()
+
+    def _watch_portals(self) -> None:
+        log = logging.getLogger("mesadock")
+        while self._running:
+            try:
+                watched = [(f.id, f.portal) for f in list(self.store.folders) if f.portal]
+            except Exception:
+                watched = []
+            for folder_id, path in watched:
+                if not self._running:
+                    return
+                try:
+                    current = portal_mod.signature(path)
+                    if current == self._portal_signatures.get(folder_id):
+                        continue
+                    entries = portal_mod.scan(path)
+                except Exception as exc:  # one bad path must not stop the watcher
+                    log.warning("portal: could not read %s: %s", path, exc)
+                    continue
+                self._enqueue_tk(lambda i=folder_id, p=path, s=current, e=entries: self._portal_changed(i, p, s, e))
+            for _ in range(25):  # 2.5 s, in slices so quitting is not held up
+                if not self._running:
+                    return
+                time.sleep(0.1)
+
+    def _portal_changed(self, folder_id: str, path: str, current: tuple, entries: list | None) -> None:
+        folder = self.store.folder_by_id(folder_id)
+        if folder is None or folder.portal != path:
+            return
+        self._portal_signatures[folder_id] = current
+        if entries is None:
+            # Folder unreachable (drive unplugged, share offline): keep what the
+            # dock shows, with its ids and custom icons, until it is back.
+            return
+        if portal_mod.sync_items(folder, entries):
+            self.touch()
+            self._refresh_dock_views(folder_id)
+
+    def _portal_is_read_only(self, folder: DockFolder, adding: bool) -> bool:
+        """Portal docks only mirror their folder; say so instead of changing it."""
+        if not folder.portal:
+            return False
+        if adding:
+            self.notify(tr("This dock shows a folder. Put the file in the folder itself."), error=True)
+        else:
+            self.notify(tr("This dock shows a folder. Remove the file from the folder itself."), error=True)
+        return True
+
+    # -- peek, hide and search ---------------------------------------------
+    def toggle_peek(self) -> None:
+        self.set_peek(not self.peek_active)
+
+    def set_peek(self, active: bool) -> None:
+        """Bring every dock above the open windows, or send them back."""
+        if active and self.docks_hidden:
+            self.set_docks_hidden(False)
+        if active == self.peek_active:
+            return
+        self.peek_active = active
+        if not active:
+            self.close_all_panels()
+        for dock in self.docks.values():
+            dock.apply_layer()
+
+    def toggle_docks_hidden(self) -> None:
+        self.set_docks_hidden(not self.docks_hidden)
+
+    def set_docks_hidden(self, hidden: bool) -> None:
+        """Hide every dock for a clean desktop, or show them again."""
+        if hidden == self.docks_hidden:
+            return
+        if hidden:
+            self.peek_active = False
+            self.close_all_panels()
+        self.docks_hidden = hidden
+        for dock in self.docks.values():
+            dock.set_hidden(hidden)
+
+    def open_search(self) -> None:
+        from .search import SearchWindow
+
+        if self.search is not None and self.search.is_alive():
+            self.search.close()
+            return
+        self.search = SearchWindow(self)
+
+    def _watch_desktop_double_click(self, x: int, y: int) -> None:
+        """Double-click on empty wallpaper hides the docks; again shows them."""
+        if not self.store.settings.hide_on_double_click or not desktop_enabled():
+            return
+        down, pressed_since = desktop.primary_button_state()
+        pressed = pressed_since or (down and not self._lbutton_down)
+        self._lbutton_down = down
+        if not pressed:
+            return
+        now = time.monotonic()
+        last = self._last_desktop_click
+        if not desktop.is_desktop_background(x, y):
+            self._last_desktop_click = None
+            return
+        if (last is not None and now - last[0] <= desktop.double_click_time()
+                and abs(x - last[1]) <= 4 and abs(y - last[2]) <= 4):
+            self._last_desktop_click = None
+            # Give Explorer a moment to update the selection the click produced.
+            self.root.after(140, self._desktop_double_clicked)
+            return
+        self._last_desktop_click = (now, x, y)
+
+    def _desktop_double_clicked(self) -> None:
+        if desktop.selected_icon_count() == 0:
+            self.toggle_docks_hidden()
+
     def _dock_pixel_size(self, folder: DockFolder) -> int:
         """Side of a dock icon window in physical pixels for this monitor."""
         monitor = self.monitor_for(tuple(folder.position)) if folder.position else self.primary_monitor()
@@ -295,6 +485,7 @@ class MesaDockApp:
             archiver = archive_mod.Archiver(self.store.active_profile.name, self.store.settings.archive_mode)
             archiver.restore_all(folder.items)
         self.store.remove_folder(folder_id)
+        self._portal_signatures.pop(folder_id, None)
         self.touch()
         self.sync_docks()
 
@@ -394,6 +585,8 @@ class MesaDockApp:
         folder = self.store.folder_by_id(folder_id)
         if folder is None:
             return 0
+        if self._portal_is_read_only(folder, adding=True):
+            return 0
         archiver = archive_mod.Archiver(self.store.active_profile.name, self.store.settings.archive_mode)
         added = 0
         logging.getLogger("mesadock").info("add: archiving %d path(s)", len(paths))
@@ -432,6 +625,8 @@ class MesaDockApp:
         folder = self.store.folder_by_id(folder_id)
         if folder is None:
             return False
+        if self._portal_is_read_only(folder, adding=True):
+            return False
         archiver = archive_mod.Archiver(self.store.active_profile.name, self.store.settings.archive_mode)
         result = archiver.add_url(url, folder.id, name=name or None)
         if not result.ok or result.item is None:
@@ -453,6 +648,8 @@ class MesaDockApp:
             return
         item = folder.item_by_id(item_id)
         if item is None:
+            return
+        if self._portal_is_read_only(folder, adding=False):
             return
         if restore:
             archiver = archive_mod.Archiver(self.store.active_profile.name, self.store.settings.archive_mode)
@@ -476,6 +673,8 @@ class MesaDockApp:
             ok = shell.launch(path)
         if not ok:
             self.notify(tr("Could not open ") + (item.name or path), error=True)
+        elif self.peek_active:
+            self.set_peek(False)
 
     # -- panels ------------------------------------------------------------
     def open_panel(self, folder: DockFolder, force: bool = False) -> None:
@@ -558,6 +757,7 @@ class MesaDockApp:
         except tk.TclError:
             return
         self._last_pointer = (x, y)
+        self._watch_desktop_double_click(x, y)
         over_dock = next((d for d in self.docks.values() if d.contains_point(x, y)), None)
         over_panel = next((p for p in self.panels.values() if p.contains_point(x, y)), None)
         if over_panel is not None:
@@ -725,10 +925,15 @@ class MesaDockApp:
         for style, label in (("grid", "Grid"), ("column", "Column"), ("row", "Row"), ("fan", "Fan"), ("ring", "Ring")):
             menu.add_command(label=tr("Style: ") + tr(label), command=lambda s=style: self.set_dock_style(folder.id, s))
         menu.add_separator()
-        menu.add_command(label=tr("Add shortcuts..."), command=lambda: self.add_items_via_dialog(folder.id))
-        menu.add_command(label=tr("Add web link") + "...", command=lambda: self.add_link_via_dialog(folder.id))
+        if folder.portal:
+            menu.add_command(label=tr("Open folder"), command=lambda: self.open_portal_folder(folder))
+            menu.add_command(label=tr("Change folder..."), command=lambda: self.set_portal_folder(folder.id))
+        else:
+            menu.add_command(label=tr("Add shortcuts..."), command=lambda: self.add_items_via_dialog(folder.id))
+            menu.add_command(label=tr("Add web link") + "...", command=lambda: self.add_link_via_dialog(folder.id))
         menu.add_separator()
-        menu.add_command(label=tr("Remove dock (restores items)"), command=lambda: self.confirm_remove_dock(folder.id))
+        menu.add_command(label=tr("Remove dock") if folder.portal else tr("Remove dock (restores items)"),
+                         command=lambda: self.confirm_remove_dock(folder.id))
         try:
             menu.tk_popup(x, y)
         finally:
@@ -740,7 +945,11 @@ class MesaDockApp:
         folder = self.store.folder_by_id(folder_id)
         if folder is None:
             return
-        if messagebox.askyesno(tr("Remove dock"), tr("Remove \"{name}\"?\n\nItems are put back on the desktop.").format(name=folder.name)):
+        if folder.portal:
+            question = tr("Remove \"{name}\"?\n\nThe folder and its files are not touched.")
+        else:
+            question = tr("Remove \"{name}\"?\n\nItems are put back on the desktop.")
+        if messagebox.askyesno(tr("Remove dock"), question.format(name=folder.name)):
             self.remove_dock(folder_id, restore=True)
 
     def add_items_via_dialog(self, folder_id: str) -> None:
@@ -763,10 +972,13 @@ class MesaDockApp:
                        borderwidth=0, font=theme.font(9))
         menu.add_command(label=tr("Open"), command=lambda: self.launch_item(folder, item))
         menu.add_separator()
-        menu.add_command(label=tr("Remove from dock (puts it back on the desktop)"),
-                         command=lambda: self.confirm_remove(folder, item, restore=True))
-        menu.add_command(label=tr("Remove from dock (leaves the original alone)"),
-                         command=lambda: self.confirm_remove(folder, item, restore=False))
+        if folder.portal:
+            menu.add_command(label=tr("Show in folder"), command=lambda: shell.reveal(item.path))
+        else:
+            menu.add_command(label=tr("Remove from dock (puts it back on the desktop)"),
+                             command=lambda: self.confirm_remove(folder, item, restore=True))
+            menu.add_command(label=tr("Remove from dock (leaves the original alone)"),
+                             command=lambda: self.confirm_remove(folder, item, restore=False))
         menu.add_separator()
         menu.add_command(label=tr("Change icon..."),
                          command=lambda: self.choose_item_icon(folder.id, item.id))

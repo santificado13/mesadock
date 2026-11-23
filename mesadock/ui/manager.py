@@ -117,6 +117,8 @@ class ManagerWindow:
                  font=theme.font(8, "bold")).pack(side="left")
         ttk.Button(head, text=tr("+ New dock"), style="Ghost.TButton",
                    command=self._new_dock).pack(side="right")
+        ttk.Button(sidebar, text=tr("+ Folder dock"), style="Ghost.TButton",
+                   command=self._new_portal).pack(anchor="e", padx=14, pady=(0, 8))
 
         # Footer (profile & language)
         footer = tk.Frame(sidebar, bg=theme.BG_SIDEBAR)
@@ -494,6 +496,8 @@ class ManagerWindow:
         self._refresh_icon()
         count = len(folder.items)
         sub_text = f"{count} " + (tr("1 shortcut") if count == 1 else tr(" shortcuts"))
+        if folder.portal:
+            sub_text += "  \u00b7  " + tr("shows the folder ") + folder.portal
         self.item_count_label.configure(text=sub_text)
         self._refresh_items()
         self._highlight_selected()
@@ -534,6 +538,14 @@ class ManagerWindow:
             self.items.selection_set(self.selected_item_id)
 
     # -- actions -----------------------------------------------------------
+    def _new_portal(self) -> None:
+        folder = self.app.prompt_new_portal(parent=self.window)
+        if folder is None:
+            return
+        self.refresh_docks()
+        self.select_folder(folder.id)
+        self.set_status(tr("Dock \"{name}\" created.").format(name=folder.name))
+
     def _new_dock(self) -> None:
         name = _ask_string(self.window, tr("New dock"), tr("Name this dock:"))
         name = (name or "").strip()
@@ -658,6 +670,9 @@ class ManagerWindow:
         selection = self.items.selection()
         if folder is None or not selection:
             return
+        if folder.portal:
+            self.set_status(tr("A folder dock follows the order of its folder"), error=True)
+            return
         folder.move_item(selection[0], delta)
         self.app.touch()
         self._refresh_items()
@@ -673,6 +688,9 @@ class ManagerWindow:
             return
         item = folder.item_by_id(selection[0])
         if item is None:
+            return
+        if folder.portal:
+            self.set_status(tr("This dock shows a folder. Remove the file from the folder itself."), error=True)
             return
         if not messagebox.askyesno(
             tr("Remove"),
@@ -723,6 +741,7 @@ class ManagerWindow:
         self.archive_var = tk.StringVar(value=settings.archive_mode)
         self.snap_var = tk.BooleanVar(value=settings.snap_to_grid)
         self.animations_var = tk.BooleanVar(value=settings.animations)
+        self.hide_dblclick_var = tk.BooleanVar(value=settings.hide_on_double_click)
         self.autostart_var = tk.BooleanVar(value=settings.auto_start)
         self.minimized_var = tk.BooleanVar(value=settings.start_minimized)
         self.attach_var = tk.BooleanVar(value=settings.attach_to_desktop)
@@ -788,6 +807,9 @@ class ManagerWindow:
                             style="Card.TRadiobutton", command=self._apply_settings).pack(anchor="w", pady=2)
         ttk.Checkbutton(behaviour, text=tr("Snap docks to the desktop icon grid"), variable=self.snap_var,
                         style="Card.TCheckbutton", command=self._apply_settings).pack(anchor="w", pady=(8, 2))
+        ttk.Checkbutton(behaviour, text=tr("Double-click the desktop to hide or show the docks"),
+                        variable=self.hide_dblclick_var, style="Card.TCheckbutton",
+                        command=self._apply_settings).pack(anchor="w", pady=2)
         ttk.Checkbutton(behaviour, text=tr("Animate panels"), variable=self.animations_var,
                         style="Card.TCheckbutton", command=self._apply_settings).pack(anchor="w", pady=2)
         ttk.Checkbutton(behaviour, text=tr("Start MesaDock when I sign in"), variable=self.autostart_var,
@@ -870,6 +892,7 @@ class ManagerWindow:
             settings.archive_mode = self.archive_var.get()
             settings.snap_to_grid = bool(self.snap_var.get())
             settings.animations = bool(self.animations_var.get())
+            settings.hide_on_double_click = bool(self.hide_dblclick_var.get())
             settings.auto_start = bool(self.autostart_var.get())
             settings.start_minimized = bool(self.minimized_var.get())
             settings.attach_to_desktop = bool(self.attach_var.get())

@@ -24,9 +24,20 @@ WM_HOTKEY = 0x0312
 # Ctrl+Shift+M opens the Manager from anywhere. A Tk binding only fired while a
 # MesaDock window had focus, so the shortcut seemed dead from the desktop.
 HOTKEY_MANAGER_ID = 1
+MOD_ALT = 0x0001
 MOD_CONTROL = 0x0002
 MOD_SHIFT = 0x0004
 MOD_NOREPEAT = 0x4000
+VK_SPACE = 0x20
+# id -> (modifiers, virtual key, MesaDockApp method, label for the log and menus)
+HOTKEYS = {
+    HOTKEY_MANAGER_ID: (MOD_CONTROL | MOD_SHIFT, ord("M"), "open_manager", "Ctrl+Shift+M"),
+    2: (MOD_CONTROL | MOD_ALT, VK_SPACE, "open_search", "Ctrl+Alt+Space"),
+    # F and H are free under AltGr on ABNT2 and US-International; D types a
+    # character there (Ctrl+Alt is AltGr) and the hotkey would swallow it.
+    3: (MOD_CONTROL | MOD_ALT, ord("F"), "toggle_peek", "Ctrl+Alt+F"),
+    4: (MOD_CONTROL | MOD_ALT, ord("H"), "toggle_docks_hidden", "Ctrl+Alt+H"),
+}
 NIM_ADD = 0
 NIM_MODIFY = 1
 NIM_DELETE = 2
@@ -178,6 +189,7 @@ class TrayIcon:
         self._pump_job: str | None = None
         self._wndproc_ref = None  # keep callback alive
         self.hotkey_registered = False
+        self.hotkeys: set[int] = set()
 
     # -- public API --------------------------------------------------------
     def start(self) -> bool:
@@ -205,12 +217,13 @@ class TrayIcon:
                 pass
             self._pump_job = None
         if self._hwnd:
-            if self.hotkey_registered:
+            for hotkey_id in list(self.hotkeys):
                 try:
-                    ctypes.windll.user32.UnregisterHotKey(self._hwnd, HOTKEY_MANAGER_ID)
+                    ctypes.windll.user32.UnregisterHotKey(self._hwnd, hotkey_id)
                 except (AttributeError, OSError):
                     pass
-                self.hotkey_registered = False
+            self.hotkeys.clear()
+            self.hotkey_registered = False
             try:
                 ctypes.windll.user32.DestroyWindow(self._hwnd)
             except (AttributeError, OSError):
@@ -275,13 +288,16 @@ class TrayIcon:
         if not ctypes.windll.shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(data)):
             raise RuntimeError("Shell_NotifyIcon(NIM_ADD) refused")
         self._running = True
-        # Fails when another program already owns Ctrl+Shift+M; the tray icon
-        # still works, so this is logged rather than treated as an error.
-        self.hotkey_registered = bool(user32.RegisterHotKey(
-            self._hwnd, HOTKEY_MANAGER_ID, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, ord("M")))
-        if not self.hotkey_registered:
-            import logging
-            logging.getLogger("mesadock").info("Ctrl+Shift+M is taken by another program")
+        # Registration fails when another program already owns a combination;
+        # the tray menu offers the same actions, so that is only logged.
+        import logging
+
+        for hotkey_id, (modifiers, key, _method, label) in HOTKEYS.items():
+            if user32.RegisterHotKey(self._hwnd, hotkey_id, modifiers | MOD_NOREPEAT, key):
+                self.hotkeys.add(hotkey_id)
+            else:
+                logging.getLogger("mesadock").info("%s is taken by another program", label)
+        self.hotkey_registered = HOTKEY_MANAGER_ID in self.hotkeys
 
     # -- message pumping via Tk's event loop --------------------------------
     def _pump_messages(self) -> None:
@@ -313,8 +329,8 @@ class TrayIcon:
                 elif lparam == WM_RBUTTONUP:
                     self._show_menu()
                 return 0
-            if msg == WM_HOTKEY and wparam == HOTKEY_MANAGER_ID:
-                self._call_in_tk(self.app.open_manager)
+            if msg == WM_HOTKEY and wparam in HOTKEYS:
+                self._call_in_tk(getattr(self.app, HOTKEYS[int(wparam)][2]))
                 return 0
             if msg == WM_SHOW_MANAGER:
                 self._call_in_tk(self.app.open_manager)
@@ -355,8 +371,24 @@ class TrayIcon:
             menu = tk.Menu(self.app.root, tearoff=0, bg=theme.BG_ELEVATED, fg=theme.TEXT,
                            activebackground=theme.ACCENT_SOFT, activeforeground=theme.TEXT,
                            borderwidth=0, font=theme.font(9))
-            menu.add_command(label=tr("Open Manager"), command=self.app.open_manager)
+            def key(hotkey_id: int) -> str:
+                return HOTKEYS[hotkey_id][3] if hotkey_id in self.hotkeys else ""
+
+            menu.add_command(label=tr("Open Manager"), accelerator=key(HOTKEY_MANAGER_ID),
+                             command=self.app.open_manager)
+            menu.add_command(label=tr("Search shortcuts..."), accelerator=key(2),
+                             command=self.app.open_search)
+            menu.add_separator()
             menu.add_command(label=tr("New dock"), command=self.app.prompt_new_dock)
+            menu.add_command(label=tr("New folder dock..."), command=self.app.prompt_new_portal)
+            menu.add_separator()
+            menu.add_command(
+                label=tr("Send docks behind windows") if self.app.peek_active else tr("Bring docks to the front"),
+                accelerator=key(3), command=self.app.toggle_peek)
+            menu.add_command(
+                label=tr("Show docks") if self.app.docks_hidden else tr("Hide docks"),
+                accelerator=key(4), command=self.app.toggle_docks_hidden)
+            menu.add_separator()
             profiles = tk.Menu(menu, tearoff=0, bg=theme.BG_ELEVATED, fg=theme.TEXT,
                                activebackground=theme.ACCENT_SOFT, activeforeground=theme.TEXT,
                                borderwidth=0, font=theme.font(9))

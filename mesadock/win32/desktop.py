@@ -485,6 +485,80 @@ def window_rect(hwnd: int) -> tuple[int, int, int, int] | None:
     return None
 
 
+LVM_GETSELECTEDCOUNT = 0x1032
+
+
+def is_desktop_background(x: int, y: int) -> bool:
+    """True when the window under the screen point is the desktop icon view.
+
+    A dock, a panel or any application window on top of the desktop makes this
+    False, so it tells a click on the wallpaper from a click on anything else.
+    """
+    found = find_desktop_listview()
+    if not found:
+        return False
+    try:
+        user32 = ctypes.windll.user32
+        user32.WindowFromPoint.argtypes = [wintypes.POINT]
+        user32.WindowFromPoint.restype = wintypes.HWND
+        under = user32.WindowFromPoint(wintypes.POINT(int(x), int(y)))
+        if not under:
+            return False
+        if int(under) == int(found[0]):
+            return True
+        # With "Show desktop icons" off the list view is hidden and its parent
+        # (SHELLDLL_DefView) is what the pointer hits.
+        user32.GetParent.argtypes = [wintypes.HWND]
+        user32.GetParent.restype = wintypes.HWND
+        parent = user32.GetParent(found[0])
+        return bool(parent) and int(under) == int(parent)
+    except _SHELL_ERRORS:
+        return False
+
+
+def selected_icon_count() -> int:
+    """How many desktop icons are selected; -1 when the desktop is unreachable.
+
+    Clicking empty wallpaper clears the selection and clicking an icon selects
+    it, which is how a double-click on the background is told from opening an
+    icon without reading icon rectangles out of Explorer's memory.
+    """
+    found = find_desktop_listview()
+    if not found:
+        return -1
+    try:
+        user32 = ctypes.windll.user32
+        user32.SendMessageTimeoutW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM,
+                                               wintypes.UINT, wintypes.UINT, ctypes.POINTER(ctypes.c_size_t)]
+        user32.SendMessageTimeoutW.restype = wintypes.LPARAM
+        result = ctypes.c_size_t(0)
+        # SMTO_ABORTIFHUNG: a frozen Explorer must not freeze the docks with it.
+        if not user32.SendMessageTimeoutW(found[0], LVM_GETSELECTEDCOUNT, 0, 0, 0x0002, 200, ctypes.byref(result)):
+            return -1
+        return int(result.value)
+    except _SHELL_ERRORS:
+        return -1
+
+
+def primary_button_state() -> tuple[bool, bool]:
+    """(down now, pressed since the last call) for the primary mouse button."""
+    try:
+        user32 = ctypes.windll.user32
+        swapped = bool(user32.GetSystemMetrics(23))  # SM_SWAPBUTTON
+        state = int(user32.GetAsyncKeyState(0x02 if swapped else 0x01))
+        return bool(state & 0x8000), bool(state & 0x0001)
+    except _SHELL_ERRORS:
+        return False, False
+
+
+def double_click_time() -> float:
+    """System double-click interval in seconds."""
+    try:
+        return max(0.2, min(0.9, int(ctypes.windll.user32.GetDoubleClickTime()) / 1000.0))
+    except _SHELL_ERRORS:
+        return 0.5
+
+
 if desktop_enabled():
     # Declare every Win64 prototype once at import, so no function depends on
     # being called after another one happened to run _declare_signatures() first.

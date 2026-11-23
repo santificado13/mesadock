@@ -73,6 +73,8 @@ class DockFolder(BaseModel):
     position: Optional[Tuple[int, int]] = None
     icon_size: int = 64
     show_labels: bool = True
+    # Folder portal: when set, the items mirror this folder (see core.portal).
+    portal: str = ""
     id: str = Field(default_factory=lambda: new_id("f_"))
     created_at: float = Field(default_factory=_now)
 
@@ -135,6 +137,7 @@ class Settings(BaseModel):
     snap_to_grid: bool = True
     attach_to_desktop: bool = True
     update_check: bool = False
+    hide_on_double_click: bool = True
     language: str = ""  # "" follows Windows; otherwise "pt" or "en"
 
     @model_validator(mode='after')

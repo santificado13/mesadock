@@ -274,6 +274,21 @@ def create_shortcut(link_path: str | Path, target: str, args: str = "", icon: st
 
 
 # --- launching ------------------------------------------------------------
+def reveal(path: str | Path) -> bool:
+    """Open Explorer with the file or folder selected."""
+    target = Path(path)
+    try:
+        if target.exists():
+            subprocess.Popen(["explorer", "/select,", str(target)])
+            return True
+        if target.parent.exists():
+            os.startfile(str(target.parent))  # type: ignore[attr-defined]
+            return True
+    except (OSError, AttributeError):
+        pass
+    return False
+
+
 def launch(path: str, args: str = "") -> bool:
     """Open a file, folder, shortcut or url with its default handler."""
     try:

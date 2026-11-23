@@ -31,6 +31,7 @@ class DockWindow:
         self._moved = False
         self._click_job: str | None = None
         self._hover = False
+        self._hidden = False
         self._photos: list[ImageTk.PhotoImage] = []
         self._drop_target = None
         size = self._pixel_size()
@@ -87,7 +88,11 @@ class DockWindow:
     def _place_on_desktop(self) -> None:
         """Layer the dock like a desktop icon, unless the user opted out."""
         self._register_drops()
-        if not self.app.store.settings.attach_to_desktop:
+        if self._hidden:
+            # sit_above_desktop shows the window (SWP_SHOWWINDOW); a dock hidden by
+            # the user came back on screen 30 ms after it was created or refreshed.
+            return
+        if not self._on_desktop_layer():
             self._set_topmost(True)
             return
         try:
@@ -114,6 +119,30 @@ class DockWindow:
         except tk.TclError:
             pass
 
+    def _on_desktop_layer(self) -> bool:
+        """Docks sit behind windows unless that is off or Peek is showing them."""
+        return bool(self.app.store.settings.attach_to_desktop) and not getattr(self.app, "peek_active", False)
+
+    def apply_layer(self) -> None:
+        """Re-apply the z-order after Peek was turned on or off."""
+        if not self._hidden:
+            self._ensure_on_desktop()
+
+    def set_hidden(self, hidden: bool) -> None:
+        """Take the dock off the desktop, or bring it back, without closing it."""
+        if hidden == self._hidden:
+            return
+        self._hidden = hidden
+        try:
+            if hidden:
+                self.window.withdraw()
+            else:
+                self.window.deiconify()
+                self._draw()
+                self._ensure_on_desktop()
+        except tk.TclError:
+            pass
+
     def _ensure_on_desktop(self) -> None:
         if self._reassert_job is not None:
             try:
@@ -125,9 +154,9 @@ class DockWindow:
 
     def _reassert_step(self, step: int) -> None:
         self._reassert_job = None
-        if not self.is_alive():
+        if not self.is_alive() or self._hidden:
             return
-        if self.app.store.settings.attach_to_desktop:
+        if self._on_desktop_layer():
             self._set_topmost(False)
             try:
                 hwnd = int(self.window.winfo_id())
@@ -151,7 +180,8 @@ class DockWindow:
             from ..win32 import desktop
 
             if (
-                self.app.store.settings.attach_to_desktop
+                self._on_desktop_layer()
+                and not self._hidden
                 and desktop.desktop_enabled()
             ):
                 try:
@@ -291,7 +321,7 @@ class DockWindow:
     def _badge(self, count: int, size: int) -> ImageTk.PhotoImage | None:
         from ..core import icons as icon_art
 
-        accent = icon_art.STYLE_COLOURS.get(self.folder.style, "blue")
+        accent = icon_art.STYLE_COLOURS.get("portal" if self.folder.portal else self.folder.style, "blue")
         diameter = max(18, int(size * 0.30))
         # self_badge draws the circle in the corner of a square layer; crop to the
         # circle before scaling, or the whole layer shrinks it to a dot.
@@ -390,5 +420,7 @@ class DockWindow:
             return False
 
     def contains_point(self, x: int, y: int) -> bool:
+        if self._hidden:
+            return False
         left, top, width, height = self.rect()
         return left <= x < left + width and top <= y < top + height

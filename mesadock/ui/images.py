@@ -181,6 +181,8 @@ def folder_source(folder) -> str:
                 return icon
         except Exception:
             pass
+    if getattr(folder, "portal", ""):
+        return "glyph:portal"
     return "glyph:" + (getattr(folder, "style", "") or "grid")
 
 

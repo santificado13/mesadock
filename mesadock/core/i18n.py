@@ -138,6 +138,30 @@ _PT = {
     "Use the original icon": "Voltar ao ícone original",
     "Icon...": "Ícone...",
     "Select an item first": "Selecione um item primeiro",
+    "Choose the folder this dock will show": "Escolha a pasta que esta dock vai mostrar",
+    "This dock shows a folder. Put the file in the folder itself.":
+        "Esta dock mostra uma pasta. Coloque o arquivo na própria pasta.",
+    "This dock shows a folder. Remove the file from the folder itself.":
+        "Esta dock mostra uma pasta. Remova o arquivo da própria pasta.",
+    "Open folder": "Abrir pasta",
+    "Change folder...": "Trocar pasta...",
+    "Show in folder": "Mostrar na pasta",
+    "+ Folder dock": "+ Dock de pasta",
+    "shows the folder ": "mostra a pasta ",
+    "Double-click the desktop to hide or show the docks":
+        "Duplo clique na área de trabalho oculta ou mostra as docks",
+    "Nothing found": "Nada encontrado",
+    "Enter opens  ·  ↑ ↓ choose  ·  Esc closes": "Enter abre  ·  ↑ ↓ escolhe  ·  Esc fecha",
+    "Type to find a shortcut in any dock": "Digite para achar um atalho em qualquer dock",
+    "Search shortcuts...": "Buscar atalhos...",
+    "New folder dock...": "Nova dock de pasta...",
+    "Send docks behind windows": "Mandar as docks para trás das janelas",
+    "Bring docks to the front": "Trazer as docks para a frente",
+    "Show docks": "Mostrar docks",
+    "Hide docks": "Ocultar docks",
+    "Remove \"{name}\"?\n\nThe folder and its files are not touched.":
+        "Excluir \"{name}\"?\n\nA pasta e os arquivos dela não são alterados.",
+    "A folder dock follows the order of its folder": "A dock de pasta segue a ordem da própria pasta",
 }
 
 
