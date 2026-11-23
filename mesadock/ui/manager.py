@@ -366,9 +366,10 @@ class ManagerWindow:
         self.items.heading("#0", text=tr("Item"), anchor="w")
         self.items.heading("kind", text=tr("Type"), anchor="w")
         self.items.heading("target", text=tr("Target"), anchor="w")
-        self.items.column("#0", width=250, minwidth=170, anchor="w")
-        self.items.column("kind", width=80, minwidth=60, anchor="w")
-        self.items.column("target", width=380, minwidth=200, anchor="w")
+        # "Type" also shows the item's tab ("App  ·  Office"), so it needs the room.
+        self.items.column("#0", width=230, minwidth=160, anchor="w")
+        self.items.column("kind", width=170, minwidth=90, anchor="w")
+        self.items.column("target", width=310, minwidth=180, anchor="w")
 
         scroll = ttk.Scrollbar(table, orient="vertical", command=self.items.yview)
         self.items.configure(yscrollcommand=scroll.set)

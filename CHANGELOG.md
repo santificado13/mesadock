@@ -6,6 +6,20 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
 
 ## [Não lançado]
 
+### Alterado
+- Documentação refeita: README principal em português e `README.en.md` em inglês,
+  com fotos novas geradas com dados de exemplo (`docs/screens/pt` e `docs/screens/en`).
+  Saíram as fotos antigas, que vinham de uma área de trabalho real.
+- `tools/capture_screens.py` monta um fundo próprio e aceita `--lang pt|en`.
+- O zip da versão leva os dois READMEs.
+
+### Corrigido
+- `mesadock restore` agora devolve os atalhos arquivados de **todos os perfis**,
+  como o botão do Gerenciador; antes cobria só o perfil ativo.
+- `mesadock import` não grava mais arquivos fora da pasta de dados.
+- A busca rápida abria fora do lugar num segundo monitor.
+- A coluna Tipo do Gerenciador cortava o nome da aba.
+
 ## [1.2.0] - 2026-11-23
 
 ### Alterado

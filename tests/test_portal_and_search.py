@@ -1,6 +1,8 @@
 """Folder portals (a dock mirroring a folder) and the quick search."""
 from __future__ import annotations
 
+import pytest
+
 from mesadock.core import portal, search
 from mesadock.core.models import DockFolder, DockItem
 
@@ -140,3 +142,33 @@ def test_every_word_must_match_and_separators_split_words():
 def test_the_dock_name_also_matches_and_the_limit_applies():
     assert _names("jogos") == ["Steam"]
     assert len(_names("o", limit=2)) == 2
+
+
+def test_search_box_opens_centred_on_the_monitor_under_the_mouse(home, monkeypatch):
+    """Monitor rectangles are (left, top, width, height); on a second monitor the
+    box used to be placed as if they were (left, top, right, bottom)."""
+    tk = pytest.importorskip("tkinter")
+    try:
+        root = tk.Tk()
+        root.destroy()
+    except tk.TclError:
+        pytest.skip("no display available for Tk")
+    from mesadock.core.store import Store
+    from mesadock.ui import search as search_ui
+    from mesadock.ui.app import MesaDockApp
+    from mesadock.win32.monitors import Monitor
+
+    app = MesaDockApp(store=Store())
+    app.background_watch = False
+    try:
+        second = Monitor(2, (1920, 200, 1280, 1024), (1920, 200, 1280, 984), 1.0, False)
+        monkeypatch.setattr(app, "monitor_for", lambda _point: second)
+        window = search_ui.SearchWindow(app)
+        app.root.update_idletasks()
+        geometry = window.window.geometry()
+        x, y = (int(v) for v in geometry.split("+")[1:3])
+        assert x == 1920 + (1280 - search_ui.WIDTH) // 2
+        assert y == 200 + int(984 * 0.24)
+        window.close()
+    finally:
+        app.quit()

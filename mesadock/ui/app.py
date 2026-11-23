@@ -1421,30 +1421,5 @@ class MesaDockApp:
     def emergency_restore_all(self) -> int:
         """Put every archived desktop item back (uninstall-time safety net)."""
         self._quiet_desktop(30.0)
-        restored = 0
-        for profile in self.store.profiles:
-            local = archive_mod.Archiver(profile.name, self.store.settings.archive_mode)
-            for folder in profile.folders:
-                restored += local.restore_all(folder.items)
-        directories = [paths.archive_dir()]
-        for directory in directories:
-            if not directory.exists():
-                continue
-            for sub in list(directory.iterdir()):
-                try:
-                    from ..core.archive import user_desktop_dirs
-
-                    target_dir = user_desktop_dirs()[0] if user_desktop_dirs() else Path.home() / "Desktop"
-                    if sub.is_dir():
-                        for child in list(sub.iterdir()):
-                            name = child.name.split("_", 1)[-1] if "_" in child.name else child.name
-                            destination = target_dir / name
-                            if not destination.exists():
-                                import shutil
-
-                                shutil.move(str(child), str(destination))
-                                restored += 1
-                except OSError:
-                    continue
-        return restored
+        return archive_mod.restore_everything(self.store.profiles, self.store.settings.archive_mode)
 

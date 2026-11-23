@@ -133,10 +133,9 @@ def cmd_add(args: argparse.Namespace) -> int:
 
 def cmd_restore(args: argparse.Namespace) -> int:
     store = _load()
-    archiver = archive_mod.Archiver(store.active_profile.name, store.settings.archive_mode)
-    restored = 0
-    for folder in store.folders:
-        restored += archiver.restore_all(folder.items)
+    # Every profile, exactly like Manager > About > Restore all archived shortcuts:
+    # this is what people run before deleting the data folder.
+    restored = archive_mod.restore_everything(store.profiles, store.settings.archive_mode)
     store.save()
     if restored == 0:
         print("nothing to restore - no archived shortcuts found")
@@ -182,11 +181,16 @@ def cmd_import(args: argparse.Namespace) -> int:
     if source.suffix.lower() == ".zip":
         with zipfile.ZipFile(source) as bundle:
             raw = json.loads(bundle.read("store.json").decode("utf-8"))
-            home = paths.home_dir()
+            home = paths.home_dir().resolve()
             for member in bundle.namelist():
                 if member == "store.json" or member.endswith("/"):
                     continue
-                destination = home / member
+                destination = (home / member).resolve()
+                # Only into the folders an export writes, never elsewhere ("zip slip").
+                top = member.replace("\\", "/").split("/", 1)[0]
+                if top not in ("archived", "items", "icons") or home not in destination.parents:
+                    print("skipped unsafe entry: " + member, file=sys.stderr)
+                    continue
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 with bundle.open(member) as reader, open(destination, "wb") as writer:
                     shutil.copyfileobj(reader, writer)

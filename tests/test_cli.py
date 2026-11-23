@@ -122,3 +122,51 @@ def test_unknown_command_reports_an_error(capsys, home):
 def test_version_flag(capsys, home):
     code = cli.main(["--version"])
     assert code == 0
+
+
+def test_restore_puts_back_the_originals_of_every_profile(capsys, home, desktop_dir):
+    """`mesadock restore` is what people run before deleting the data folder, so
+    it must cover every profile, like the Manager button, not only the active one."""
+    from mesadock.core import archive
+    from mesadock.core.models import DockFolder
+    from mesadock.core.store import Store
+
+    store = Store()
+    work = store.active_profile
+    home_profile = store.add_profile("Casa")
+    for profile, name in ((work, "trabalho.lnk"), (home_profile, "casa.lnk")):
+        original = desktop_dir / name
+        original.write_bytes(b"lnk")
+        dock = DockFolder(name="Dock " + profile.name)
+        result = archive.Archiver(profile.name, "move").add_from_path(original, dock.id)
+        assert result.ok and not original.exists(), "moved off the desktop"
+        dock.add_item(result.item)
+        profile.folders.append(dock)
+    # an archived file that no dock points to any more is put back too
+    orphan_dir = archive.paths.archive_dir("Default")
+    orphan_dir.mkdir(parents=True, exist_ok=True)
+    (orphan_dir / "20260101-000000_orfao.lnk").write_bytes(b"lnk")
+    store.select_profile(0)
+    store.save()
+
+    code, out, _ = run(capsys, "restore")
+    assert code == 0 and "restored 3" in out
+    assert {p.name for p in desktop_dir.iterdir()} == {"trabalho.lnk", "casa.lnk", "orfao.lnk"}
+
+
+def test_import_refuses_entries_that_would_land_outside_the_data_folder(capsys, home, tmp_path):
+    from mesadock.core.store import Store
+
+    bundle = tmp_path / "bundle.zip"
+    with zipfile.ZipFile(bundle, "w") as packed:
+        packed.writestr("store.json", json.dumps(Store().to_dict()))
+        packed.writestr("../escaped.txt", "x")
+        packed.writestr("items/../../escaped2.txt", "x")
+        packed.writestr("elsewhere/file.txt", "x")
+        packed.writestr("items/f_1/ok.lnk", "lnk")
+    code, _out, err = run(capsys, "import", str(bundle))
+    assert code == 0
+    assert not (home.parent / "escaped.txt").exists() and not (home.parent / "escaped2.txt").exists()
+    assert not (home / "elsewhere").exists()
+    assert (home / "items" / "f_1" / "ok.lnk").exists()
+    assert "skipped unsafe entry" in err

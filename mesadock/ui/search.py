@@ -69,12 +69,15 @@ class SearchWindow:
     def _place(self) -> None:
         try:
             pointer = self.app.root.winfo_pointerxy()
-            left, top, right, bottom = self.app.monitor_for(pointer).rect
+            # Monitor.work, like Monitor.rect, is (left, top, width, height), not
+            # (left, top, right, bottom): reading it as the latter put the box
+            # off-screen on a second monitor.
+            left, top, width, height = self.app.monitor_for(pointer).work
         except Exception:
             left, top = 0, 0
-            right, bottom = self.window.winfo_screenwidth(), self.window.winfo_screenheight()
-        x = left + (right - left - WIDTH) // 2
-        y = top + int((bottom - top) * 0.24)
+            width, height = self.window.winfo_screenwidth(), self.window.winfo_screenheight()
+        x = left + (width - WIDTH) // 2
+        y = top + int(height * 0.24)
         self.window.geometry("+" + str(int(x)) + "+" + str(int(y)))
 
     def _grab_focus(self) -> None:

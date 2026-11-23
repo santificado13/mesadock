@@ -279,5 +279,40 @@ def desktop_shortcuts() -> list[Path]:
     return found
 
 
+def restore_everything(profiles, archive_mode: str = "copy") -> int:
+    """Put every archived original back on the desktop: the safety net before
+    uninstalling. Covers every profile, not only the active one, and also any
+    file left in the archive folder that no dock points to any more.
+
+    Used by the Manager button and by ``mesadock restore`` so both do exactly
+    the same thing. Returns how many files were put back.
+    """
+    restored = 0
+    for profile in profiles:
+        archiver = Archiver(profile.name, archive_mode)
+        for folder in profile.folders:
+            restored += archiver.restore_all(folder.items)
+    base = paths.archive_dir()
+    if not base.exists():
+        return restored
+    desktops = user_desktop_dirs()
+    target_dir = desktops[0] if desktops else Path.home() / "Desktop"
+    for sub in list(base.iterdir()):
+        if not sub.is_dir():
+            continue
+        for child in list(sub.iterdir()):
+            # archived files are named "<timestamp>_<original name>"
+            name = child.name.split("_", 1)[-1] if "_" in child.name else child.name
+            destination = target_dir / name
+            if destination.exists():
+                continue
+            try:
+                shutil.move(str(child), str(destination))
+                restored += 1
+            except OSError:
+                continue
+    return restored
+
+
 def new_dock_folder_id() -> str:
     return new_id("f_")

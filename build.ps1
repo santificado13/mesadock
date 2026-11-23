@@ -6,7 +6,7 @@
 # installed in the global Python (numpy, requests, ...). Only the asset files
 # tracked by git are bundled, never local scratch folders under assets\.
 #
-# Output: dist\MesaDock.exe and dist\MesaDock-<version>.zip (exe + README).
+# Output: dist\MesaDock.exe and dist\MesaDock-<version>.zip (exe + README in PT and EN).
 # The exe is built into build\out first and then copied over dist\MesaDock.exe;
 # if MesaDock is running, that copy fails and the build stops with an error
 # instead of reporting success on the old file.
@@ -83,7 +83,7 @@ try {
 $version = & $py -c "import mesadock; print(mesadock.__version__)"
 $zip = Join-Path $dist ("MesaDock-" + $version + ".zip")
 if (Test-Path $zip) { Remove-Item $zip -Force }
-Compress-Archive -Path $exe, (Join-Path $root "README.md") -DestinationPath $zip
+Compress-Archive -Path $exe, (Join-Path $root "README.md"), (Join-Path $root "README.en.md") -DestinationPath $zip
 
 $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
 Write-Host "Pronto: dist\MesaDock.exe ($size MB), versao $version" -ForegroundColor Green
