@@ -8,7 +8,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 ACCENTS = {
     "blue": (94, 162, 255),
@@ -28,6 +28,19 @@ STYLE_COLOURS = {
     "ring": "rose",
     "portal": "lime",
 }
+
+
+def accent_name(folder) -> str:
+    """Accent colour of a dock: the one the user picked, else the style's."""
+    chosen = getattr(folder, "accent", "") or ""
+    if chosen in ACCENTS:
+        return chosen
+    key = "portal" if getattr(folder, "portal", "") else (getattr(folder, "style", "") or "grid")
+    return STYLE_COLOURS.get(key, "blue")
+
+
+def accent_rgb(folder) -> tuple[int, int, int]:
+    return ACCENTS[accent_name(folder)]
 
 
 def _rgba(colour: tuple[int, int, int], alpha: int = 255) -> tuple[int, int, int, int]:
@@ -67,19 +80,23 @@ def _render_tile(size: int, accent: str, style: str) -> Image.Image:
     base = Image.composite(grad, tile, mask)
     draw = ImageDraw.Draw(base)
 
-    # Fine accent border (satisfies pixels[60, 1][3] > 0 while corner at (2,2) remains transparent)
+    # Fine accent border, drawn after the gloss so it stays crisp
     border_width = max(1, int(size * 0.02))
-    draw.rounded_rectangle((x0, y0, x1, y1), radius=radius, outline=_rgba(accent_rgb, 210), width=border_width)
 
-    # Subtle inner top highlight hairline
-    if size >= 32:
-        inner_pad = pad + 1
-        draw.rounded_rectangle(
-            (inner_pad, inner_pad, x1 - 1, inner_pad + int(size * 0.35)),
-            radius=max(2, radius - 2),
-            outline=(255, 255, 255, 35),
-            width=1,
-        )
+    # Soft gloss: a white veil over the top third that fades out. The old inner
+    # outline read as a second box drawn inside the tile.
+    gloss = Image.new("L", (size, size), 0)
+    gloss_rows = []
+    limit = max(1, int(size * 0.42))
+    for y in range(size):
+        gloss_rows.extend([int(26 * (1.0 - y / limit)) if y < limit else 0] * size)
+    gloss.putdata(gloss_rows)
+    veil = Image.new("RGBA", (size, size), (255, 255, 255, 0))
+    veil.putalpha(ImageChops.multiply(gloss, mask))
+    base = Image.alpha_composite(base, veil)
+    draw = ImageDraw.Draw(base)
+
+    draw.rounded_rectangle((x0, y0, x1, y1), radius=radius, outline=_rgba(accent_rgb, 210), width=border_width)
 
     # Minimalist sleek style glyph in the center
     _draw_glyph(draw, size, style, accent_rgb)
@@ -172,7 +189,9 @@ def dock_icon(style: str, size: int = 64, accent: str | None = None, item_count:
     ``dock_index`` is accepted for older callers and no longer drawn.
     """
     colour = accent or STYLE_COLOURS.get(style, "blue")
-    image = _render_tile(size, colour, style)
+    # Pillow shapes are not anti-aliased: draw the tile larger and reduce it.
+    scale = 4 if size <= 96 else (3 if size <= 160 else 2)
+    image = _render_tile(size * scale, colour, style).resize((size, size), Image.LANCZOS)
     if item_count > 0:
         image = Image.alpha_composite(image, self_badge(size, item_count, colour))
     return image

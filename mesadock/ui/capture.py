@@ -35,7 +35,9 @@ def window_rect(window, pad: int = 0) -> tuple[int, int, int, int]:
 def grab_window(window, path: str | Path, pad: int = 4) -> Image.Image:
     """Save a screenshot of one window; returns the image."""
     left, top, right, bottom = window_rect(window, pad)
-    image = ImageGrab.grab(bbox=(left, top, right, bottom), all_screens=True).convert("RGB")
+    # Docks and panels are layered windows (per-pixel alpha); a plain grab skips them.
+    image = ImageGrab.grab(bbox=(left, top, right, bottom), all_screens=True,
+                           include_layered_windows=True).convert("RGB")
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     image.save(target)

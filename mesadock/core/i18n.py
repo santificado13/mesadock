@@ -162,6 +162,12 @@ _PT = {
     "Remove \"{name}\"?\n\nThe folder and its files are not touched.":
         "Excluir \"{name}\"?\n\nA pasta e os arquivos dela não são alterados.",
     "A folder dock follows the order of its folder": "A dock de pasta segue a ordem da própria pasta",
+    "Colour": "Cor",
+    "Size": "Tamanho",
+    "Small": "Pequeno",
+    "Medium": "Médio",
+    "Large": "Grande",
+    "Tint the icons": "Tingir os ícones",
 }
 
 

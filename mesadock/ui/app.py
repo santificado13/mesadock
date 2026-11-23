@@ -523,6 +523,25 @@ class MesaDockApp:
         if dock is not None:
             dock.refresh()
 
+    DOCK_SIZES = {"small": 48, "medium": 64, "large": 88}
+
+    def set_dock_look(self, folder_id: str, accent: str | None = None, tint: bool | None = None,
+                      size: int | None = None) -> None:
+        """Change a dock's accent colour, icon tinting and/or icon size."""
+        from ..core import icons as icon_art
+
+        folder = self.store.folder_by_id(folder_id)
+        if folder is None:
+            return
+        if accent is not None:
+            folder.accent = accent if accent in icon_art.ACCENTS else ""
+        if tint is not None:
+            folder.tint = bool(tint)
+        if size is not None:
+            folder.icon_size = max(32, min(160, int(size)))
+        self.touch()
+        self._refresh_dock_views(folder_id)
+
     ITEM_ICON_TYPES = (".png", ".ico", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".exe", ".dll")
 
     def set_item_icon(self, folder_id: str, item_id: str, source: str | None) -> bool:
@@ -733,7 +752,10 @@ class MesaDockApp:
         self.panels[panel.folder.id] = panel
 
     def _panel_closed(self, panel: Panel) -> None:
-        self.panels.pop(panel.folder.id, None)
+        # Only if it is still the registered one: a panel fading out must not
+        # unregister the new panel that was opened for the same dock meanwhile.
+        if self.panels.get(panel.folder.id) is panel:
+            self.panels.pop(panel.folder.id, None)
 
     def _pointer_inside_panel(self, panel: Panel, inside: bool) -> None:
         self._pointer_in_panel = inside

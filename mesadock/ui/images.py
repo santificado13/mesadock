@@ -27,7 +27,8 @@ class ImageCache:
         # The trailing version invalidates icons cached before the move to 256px
         # jumbo extraction; without it the old blurry PNGs kept being reused.
         # v3: dock glyphs were redrawn in the redesign; drop renders of the old art.
-        return digest + "-" + str(size) + "-v3"
+        # v4: tiles are anti-aliased and lost the inner outline.
+        return digest + "-" + str(size) + "-v4"
 
     def _disk_path(self, key: str) -> Path:
         return self._cache_dir / (key + ".png")
@@ -65,7 +66,9 @@ class ImageCache:
 
     def _render(self, source: str, size: int) -> Image.Image:
         if source.startswith("glyph:"):
-            return icon_art.dock_icon(source.split(":", 1)[1], size, item_count=0)
+            # "glyph:<style>" or "glyph:<style>:<accent>"
+            parts = source.split(":")
+            return icon_art.dock_icon(parts[1], size, accent=parts[2] if len(parts) > 2 else None, item_count=0)
         path = source
         if path and Path(path).exists():
             if path.lower().endswith(".ico"):
@@ -181,9 +184,9 @@ def folder_source(folder) -> str:
                 return icon
         except Exception:
             pass
-    if getattr(folder, "portal", ""):
-        return "glyph:portal"
-    return "glyph:" + (getattr(folder, "style", "") or "grid")
+    glyph = "portal" if getattr(folder, "portal", "") else (getattr(folder, "style", "") or "grid")
+    accent = getattr(folder, "accent", "") or ""
+    return "glyph:" + glyph + (":" + accent if accent in icon_art.ACCENTS else "")
 
 
 def prepare_canvas(window: tk.Misc, transparent_key: str) -> None:

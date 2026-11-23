@@ -2,20 +2,21 @@
 from __future__ import annotations
 
 import tkinter as tk
-import tkinter.font as tkfont
 
-from PIL import Image, ImageTk
+from PIL import Image, ImageFilter, ImageTk
 
+from ..core import icons as icon_art
 from ..core import layout as layout_mod
 from ..core.models import DockFolder
-from . import theme
+from ..win32 import layered
+from . import paint, theme
 from .images import ImageCache, folder_source, prepare_canvas
 
 ICON_PAD = 8
 DRAG_THRESHOLD = 5
-# Label pill: close to theme.TRANSPARENT_KEY so its anti-aliased edge stays clean.
 LABEL_PILL = "#121722"
 LABEL_PILL_HOVER = "#1b2333"
+DROP_GREEN = "#34d399"
 
 
 class DockWindow:
@@ -34,6 +35,9 @@ class DockWindow:
         self._hidden = False
         self._photos: list[ImageTk.PhotoImage] = []
         self._drop_target = None
+        # None = not tried yet, True = per-pixel alpha works, False = colour-key fallback
+        self._layered: bool | None = None
+        self._image: Image.Image | None = None
         size = self._pixel_size()
         self.window = tk.Toplevel(app.root)
         self.window.overrideredirect(True)
@@ -41,7 +45,6 @@ class DockWindow:
         self.window.configure(bg=theme.TRANSPARENT_KEY)
         x, y = self.position()
         self.window.geometry(str(size) + "x" + str(size) + "+" + str(x) + "+" + str(y))
-        prepare_canvas(self.window, theme.TRANSPARENT_KEY)
         self.canvas = tk.Canvas(self.window, width=size, height=size, bg=theme.TRANSPARENT_KEY,
                                 highlightthickness=0, bd=0)
         self.canvas.pack(fill="both", expand=True)
@@ -203,67 +206,107 @@ class DockWindow:
         self._draw()
 
     def _draw(self) -> None:
-        canvas = self.canvas
-        canvas.delete("all")
+        """Compose the dock as one RGBA picture and hand it to Windows.
+
+        The picture has real per-pixel alpha (see win32.layered), so the tile,
+        its shadow and the name blend with any wallpaper without the ragged
+        edges a colour-keyed Tk canvas produced.
+        """
         size = self._pixel_size()
         width = self._dock_width()
-        icon_x = width / 2
-        inset = ICON_PAD // 2
         label = self._label_text()
         label_height = self._label_height() if label else 0
-        icon_height = size
+        height = size + label_height
+        self._resize_window(width, height)
+        self._show(self._compose(width, height, size, label, label_height))
+
+    def _compose(self, width: int, height: int, size: int, label: str, label_height: int) -> Image.Image:
+        accent = icon_art.accent_rgb(self.folder)
+        image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         icon_size = size - ICON_PAD * 2
+        cx, cy = width / 2, size / 2
+        # Alpha 1 (invisible) over the tile's column keeps it clickable as one
+        # block down to the name, so the pointer does not flicker between them.
+        # The empty sides stay at alpha 0: with a long name the window is much
+        # wider than the tile, and it must not swallow clicks meant for the
+        # desktop icons next to it.
+        image.paste((0, 0, 0, 1), (int(cx - size / 2), 0, int(cx + size / 2), height))
+        tile = (cx - icon_size / 2, cy - icon_size / 2, cx + icon_size / 2, cy + icon_size / 2)
 
         if self._drop_highlight:
-            theme.rounded_rect(canvas, 1, 1, width - 1, size - 1, radius=14,
-                               fill=theme.blend("#0c0f17", "#34d399", 0.28), outline="#34d399", width=2)
+            image.alpha_composite(paint.rounded(
+                (width, size), (1, 1, width - 1, size - 1), 14,
+                fill=paint.rgba(DROP_GREEN, 70), outline=paint.rgba(DROP_GREEN, 255), width=2))
         elif self._hover:
-            theme.rounded_rect(canvas, icon_x - icon_size / 2 - 2, icon_height / 2 - icon_size / 2 - 2,
-                               icon_x + icon_size / 2 + 2, icon_height / 2 + icon_size / 2 + 2, radius=14,
-                               fill=theme.blend("#0c0f17", theme.ACCENT, 0.20),
-                               outline=theme.blend("#243044", theme.ACCENT, 0.5), width=1)
+            image.alpha_composite(paint.rounded(
+                (width, size), (tile[0] - 3, tile[1] - 3, tile[2] + 3, tile[3] + 3), icon_size * 0.24,
+                fill=paint.rgba(accent, 46), outline=paint.rgba(accent, 150), width=1))
 
         cache: ImageCache = self.app.images
-        source = folder_source(self.folder)
         try:
-            photo = cache.photo(source, icon_size)
+            icon = cache.pillow(folder_source(self.folder), icon_size).convert("RGBA")
         except Exception:
-            photo = None
-        if photo is not None:
-            self._photos = [photo]
-            canvas.create_image(icon_x, icon_height / 2, image=photo)
+            icon = None
+        if icon is not None:
+            # Shadow in the shape of the icon itself, so custom artwork gets one too.
+            silhouette = Image.new("RGBA", (width, size), (0, 0, 0, 0))
+            dark = Image.new("RGBA", icon.size, (0, 0, 0, 0))
+            dark.putalpha(icon.getchannel("A").point(lambda v: int(v * 0.42)))
+            paint.paste_centre(silhouette, dark, (cx, cy + max(2, icon_size * 0.05)))
+            image.alpha_composite(silhouette.filter(ImageFilter.GaussianBlur(max(2.0, icon_size * 0.05))))
+            paint.paste_centre(image, icon, (cx, cy))
 
         count = len(self.folder.items)
         if count:
-            badge = self._badge(count, size)
-            if badge is not None:
-                self._photos.append(badge)
-                canvas.create_image(width - inset - 4, inset + 4, image=badge, anchor="ne")
+            badge = self._badge_image(count, size)
+            inset = ICON_PAD // 2
+            image.alpha_composite(badge, (max(0, int(width - inset - 4 - badge.width)), inset + 4))
 
         if label:
-            # The name sits on a dark pill. The window is see-through by colour key
-            # (a near-black), so text drawn straight on it anti-aliased into that
-            # key and showed ragged dark fringes on light wallpapers. A pill in
-            # almost the key colour keeps its edges clean, and the text is smoothed
-            # against a solid fill.
-            font = self._label_font()
-            baseline = icon_height + label_height / 2
-            try:
-                text_w = tkfont.Font(font=font, root=self.app.root).measure(label)
-            except (tk.TclError, AttributeError):
-                text_w = len(label) * 7
-            pad_x = 8
+            face = self._label_face()
+            text = paint.fit_text(label, face, max(10, width - 18))
+            text_w = paint.text_width(text, face)
             pill_h = label_height - 4
-            half_w = min(width - 2, text_w + pad_x * 2) / 2
-            theme.rounded_rect(
-                canvas, icon_x - half_w, baseline - pill_h / 2,
-                icon_x + half_w, baseline + pill_h / 2, radius=pill_h / 2,
-                fill=LABEL_PILL_HOVER if self._hover else LABEL_PILL,
-                outline=theme.blend(LABEL_PILL, theme.ACCENT, 0.6) if self._hover else "",
-                width=1,
-            )
-            canvas.create_text(icon_x, baseline, text=label, fill="#f5f7fb", font=font)
-        self._resize_window(width, icon_height + label_height)
+            half_w = min(width - 2, text_w + 16) / 2
+            centre_y = size + label_height / 2
+            pill_fill = paint.mix(LABEL_PILL_HOVER, accent, 0.10) if self._hover else paint.rgba(LABEL_PILL)[:3]
+            image.alpha_composite(paint.rounded(
+                (width, height), (cx - half_w, centre_y - pill_h / 2, cx + half_w, centre_y + pill_h / 2),
+                pill_h / 2, fill=paint.rgba(pill_fill, 228),
+                outline=paint.rgba(accent, 170) if self._hover else None, width=1))
+            paint.draw_text(image, (cx, centre_y - 1), text, face, paint.rgba("#f5f7fb"))
+        return image
+
+    def _dpi(self) -> float:
+        """DPI of the monitor the dock is on (Tk only knows the primary one)."""
+        return 96.0 * float(getattr(self.app.monitor_for(self.position()), "scale", 1.0) or 1.0)
+
+    def _label_face(self):
+        return paint.font(paint.points_to_pixels(9, self._dpi()), "semibold")
+
+    def _show(self, image: Image.Image) -> None:
+        self._image = image
+        if self._layered is not False:
+            try:
+                self.window.update_idletasks()
+                shown = layered.present(int(self.window.winfo_id()), image)
+            except tk.TclError:
+                return
+            if shown:
+                self._layered = True
+                return
+            self._layered = False
+            prepare_canvas(self.window, theme.TRANSPARENT_KEY)
+        # Fallback: the same picture on the canvas, see-through by colour key.
+        backdrop = Image.new("RGBA", image.size, paint.rgba(theme.TRANSPARENT_KEY))
+        solid = image.copy()
+        solid.putalpha(image.getchannel("A").point(lambda v: 255 if v >= 96 else 0))
+        backdrop.alpha_composite(solid)
+        photo = ImageTk.PhotoImage(backdrop)
+        self._photos = [photo]
+        self.canvas.delete("all")
+        self.canvas.configure(bg=theme.TRANSPARENT_KEY)
+        self.canvas.create_image(0, 0, image=photo, anchor="nw")
 
     def _label_font(self):
         return ("Segoe UI Semibold", 9)
@@ -272,18 +315,8 @@ class DockWindow:
         name = (self.folder.name or "").strip()
         if not name:
             return ""
-        available = self._label_space()
-        try:
-            measure = tkfont.Font(font=self._label_font(), root=self.app.root).measure
-        except (tk.TclError, AttributeError):
-            limit = max(6, int(available / 9))
-            return name if len(name) <= limit else name[:max(1, limit - 1)].rstrip() + "\u2026"
-        if measure(name) <= available:
-            return name
-        shortened = name
-        while shortened and measure(shortened + "\u2026") > available:
-            shortened = shortened[:-1]
-        return (shortened.rstrip() + "\u2026") if shortened else "\u2026"
+        # Measured with the font the name is painted in, at this monitor's DPI.
+        return paint.fit_text(name, self._label_face(), self._label_space())
 
     def _label_space(self) -> int:
         """Pixels available for the name inside the dock window."""
@@ -294,12 +327,8 @@ class DockWindow:
         size = self._pixel_size()
         if not name:
             return size
-        try:
-            measure = tkfont.Font(font=self._label_font(), root=self.app.root).measure
-        except (tk.TclError, AttributeError):
-            return size
         # Text + pill padding (2 x 8px) + a little margin, so names are not cut
-        return int(min(max(size, measure(name) + 22), size * 2.8))
+        return int(min(max(size, paint.text_width(name, self._label_face()) + 22), size * 2.8))
 
     def _dock_width(self) -> int:
         return max(self._pixel_size(), self._label_width())
@@ -318,22 +347,15 @@ class DockWindow:
         except tk.TclError:
             pass
 
-    def _badge(self, count: int, size: int) -> ImageTk.PhotoImage | None:
-        from ..core import icons as icon_art
-
-        accent = icon_art.STYLE_COLOURS.get("portal" if self.folder.portal else self.folder.style, "blue")
+    def _badge_image(self, count: int, size: int) -> Image.Image:
         diameter = max(18, int(size * 0.30))
         # self_badge draws the circle in the corner of a square layer; crop to the
         # circle before scaling, or the whole layer shrinks it to a dot.
-        layer = icon_art.self_badge(diameter * 6, count, accent)
+        layer = icon_art.self_badge(diameter * 6, count, icon_art.accent_name(self.folder))
         box = layer.getbbox()
         if box:
             layer = layer.crop(box)
-        image = layer.resize((diameter, diameter), Image.LANCZOS)
-        try:
-            return ImageTk.PhotoImage(image)
-        except Exception:
-            return None
+        return layer.resize((diameter, diameter), Image.LANCZOS)
 
     def refresh(self) -> None:
         """Re-read the dock (style, icon, item count) and redraw."""

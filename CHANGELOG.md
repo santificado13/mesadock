@@ -7,6 +7,14 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
 ## [Não lançado]
 
 ### Adicionado
+- **Transparência por pixel:** docks e painéis são compostos como imagem e
+  apresentados com alfa real (UpdateLayeredWindow). Bordas lisas em qualquer
+  papel de parede, sombra suave e fundo do painel de fato translúcido. Se o
+  Windows recusar, volta ao modo antigo com cor-chave.
+- **Aparência por dock** no Gerenciador: cor de destaque (7 cores ou
+  automática), tamanho (Pequeno, Médio, Grande) e "Tingir os ícones".
+- **Animações:** o painel surge com fade e um leve deslize e some com fade,
+  inclusive nos estilos Anel e Leque.
 - **Dock de pasta:** uma dock que mostra o conteúdo de uma pasta ao vivo
   ("+ Dock de pasta" no Gerenciador ou "Nova dock de pasta..." na bandeja).
   Só lê a pasta, nunca a altera; se a pasta ficar indisponível, os itens e os

@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from .. import __version__
 from ..core import archive as archive_mod
+from ..core import icons as icon_art
 from ..core import paths
 from ..core.models import DOCK_STYLE_LABELS, DOCK_STYLES
 from ..core import i18n
@@ -67,6 +68,8 @@ class ManagerWindow:
         self._photos: list = []
         self._row_widgets: dict[str, dict] = {}
         self._style_buttons: dict[str, tk.Button] = {}
+        self._accent_swatches: dict[str, tk.Canvas] = {}
+        self._size_buttons: dict[str, tk.Button] = {}
         self._status_job = None
         self._drag_item_id: str | None = None
 
@@ -304,6 +307,35 @@ class ManagerWindow:
             btn.pack(side="left", padx=1, pady=1)
             self._style_buttons[style_key] = btn
 
+        # Look: accent colour, icon size and icon tinting of this dock
+        look = tk.Frame(tab, bg=theme.BG_ELEVATED)
+        look.pack(fill="x", padx=20, pady=(0, 12))
+        tk.Label(look, text=tr("Colour") + ":", bg=theme.BG_ELEVATED, fg=theme.TEXT_MUTED,
+                 font=theme.font(9)).pack(side="left", padx=(0, 8))
+        self._accent_swatches.clear()
+        for accent_key in ("",) + tuple(icon_art.ACCENTS):
+            swatch = tk.Canvas(look, width=22, height=22, bg=theme.BG_ELEVATED, highlightthickness=0,
+                               bd=0, cursor="hand2")
+            swatch.pack(side="left", padx=2)
+            swatch.bind("<Button-1>", lambda _e, key=accent_key: self._on_accent_clicked(key))
+            self._accent_swatches[accent_key] = swatch
+
+        tk.Label(look, text=tr("Size") + ":", bg=theme.BG_ELEVATED, fg=theme.TEXT_MUTED,
+                 font=theme.font(9)).pack(side="left", padx=(18, 8))
+        size_seg = tk.Frame(look, bg=theme.BG_INPUT)
+        size_seg.pack(side="left")
+        self._size_buttons.clear()
+        for size_key, size_label in (("small", "Small"), ("medium", "Medium"), ("large", "Large")):
+            size_btn = tk.Button(size_seg, text=tr(size_label), relief="flat", bd=0, padx=10, pady=4,
+                                 font=theme.font(9), cursor="hand2",
+                                 command=lambda key=size_key: self._on_size_clicked(key))
+            size_btn.pack(side="left", padx=1, pady=1)
+            self._size_buttons[size_key] = size_btn
+
+        self.tint_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(look, text=tr("Tint the icons"), variable=self.tint_var, style="Card.TCheckbutton",
+                        command=self._on_tint_toggled).pack(side="left", padx=(18, 0))
+
         # Actions bar: "Add shortcuts..." as the ONLY Accent action
         actions = tk.Frame(tab, bg=theme.BG_ELEVATED)
         actions.pack(fill="x", padx=20, pady=(0, 12))
@@ -316,7 +348,6 @@ class ManagerWindow:
 
         # Items Table
         table = tk.Frame(tab, bg=theme.BG_ELEVATED)
-        table.pack(fill="both", expand=True, padx=20, pady=(0, 8))
         columns = ("kind", "target")
         self.items = ttk.Treeview(table, columns=columns, show="tree headings", selectmode="browse")
         self.items.heading("#0", text=tr("Item"), anchor="w")
@@ -339,8 +370,11 @@ class ManagerWindow:
         self.items.bind("<ButtonRelease-1>", self._on_tree_release, add="+")
 
         # Bottom row: small up/down arrow buttons, small Open and Remove buttons
+        # The button row is packed first, at the bottom, so the table (which takes
+        # all spare height) can never push it out of a short window.
         row = tk.Frame(tab, bg=theme.BG_ELEVATED)
-        row.pack(fill="x", padx=20, pady=(0, 14))
+        row.pack(side="bottom", fill="x", padx=20, pady=(0, 14))
+        table.pack(fill="both", expand=True, padx=20, pady=(0, 8))
         ttk.Button(row, text="▲", width=3, style="Ghost.TButton",
                    command=lambda: self._move_item(-1)).pack(side="left")
         ttk.Button(row, text="▼", width=3, style="Ghost.TButton",
@@ -370,6 +404,46 @@ class ManagerWindow:
                 btn.configure(bg=theme.ACCENT, fg="#08111f", font=theme.font(9, "bold"))
             else:
                 btn.configure(bg=theme.BG_INPUT, fg=theme.TEXT_MUTED, font=theme.font(9))
+
+    def _update_look_controls(self, folder) -> None:
+        current = folder.accent if folder.accent in icon_art.ACCENTS else ""
+        style_key = "portal" if folder.portal else folder.style
+        automatic = icon_art.ACCENTS[icon_art.STYLE_COLOURS.get(style_key, "blue")]
+        for key, swatch in self._accent_swatches.items():
+            swatch.delete("all")
+            rgb = icon_art.ACCENTS[key] if key else automatic
+            colour = "#%02x%02x%02x" % rgb
+            if key == current:
+                swatch.create_oval(1, 1, 21, 21, outline=theme.TEXT, width=2)
+            swatch.create_oval(5, 5, 17, 17, fill=colour, outline=colour)
+            if not key:  # "automatic": follows the dock style
+                swatch.create_text(11, 11, text="A", fill="#08111f", font=theme.font(7, "bold"))
+        sizes = self.app.DOCK_SIZES
+        nearest = min(sizes, key=lambda name: abs(sizes[name] - int(folder.icon_size or 64)))
+        for key, button in self._size_buttons.items():
+            if key == nearest:
+                button.configure(bg=theme.ACCENT, fg="#08111f", font=theme.font(9, "bold"))
+            else:
+                button.configure(bg=theme.BG_INPUT, fg=theme.TEXT_MUTED, font=theme.font(9))
+        self.tint_var.set(bool(folder.tint))
+
+    def _selected_folder(self):
+        return self.app.store.folder_by_id(self.selected_id or "")
+
+    def _on_accent_clicked(self, accent: str) -> None:
+        folder = self._selected_folder()
+        if folder is not None:
+            self.app.set_dock_look(folder.id, accent=accent)
+
+    def _on_size_clicked(self, size_key: str) -> None:
+        folder = self._selected_folder()
+        if folder is not None:
+            self.app.set_dock_look(folder.id, size=self.app.DOCK_SIZES[size_key])
+
+    def _on_tint_toggled(self) -> None:
+        folder = self._selected_folder()
+        if folder is not None:
+            self.app.set_dock_look(folder.id, tint=bool(self.tint_var.get()))
 
     def _on_style_button_clicked(self, style: str) -> None:
         folder = self.app.store.folder_by_id(self.selected_id or "")
@@ -493,6 +567,7 @@ class ManagerWindow:
         self.name_var.set(folder.name)
         self.style_var.set(DOCK_STYLE_LABELS.get(folder.style, folder.style))
         self._update_style_buttons(folder.style)
+        self._update_look_controls(folder)
         self._refresh_icon()
         count = len(folder.items)
         sub_text = f"{count} " + (tr("1 shortcut") if count == 1 else tr(" shortcuts"))

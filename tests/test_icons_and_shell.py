@@ -191,7 +191,7 @@ def test_image_cache_key_is_versioned_so_stale_icons_are_not_reused(home):
 
     cache = ImageCache(cache_dir=home / "icons")
     key = cache._key("C:/whatever.lnk", 64)
-    assert key.endswith("-v3"), key
+    assert key.endswith("-v4"), key
     assert cache._key("C:/whatever.lnk", 64) == key
     assert cache._key("C:/whatever.lnk", 96) != key
 

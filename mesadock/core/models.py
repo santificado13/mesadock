@@ -75,6 +75,10 @@ class DockFolder(BaseModel):
     show_labels: bool = True
     # Folder portal: when set, the items mirror this folder (see core.portal).
     portal: str = ""
+    # Look: accent colour name (see core.icons.ACCENTS; "" follows the style) and
+    # whether the item icons are recoloured in that accent.
+    accent: str = ""
+    tint: bool = False
     id: str = Field(default_factory=lambda: new_id("f_"))
     created_at: float = Field(default_factory=_now)
 
