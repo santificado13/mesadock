@@ -14,6 +14,10 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
 - O zip da versão leva os dois READMEs.
 
 ### Corrigido
+- O painel fechava sozinho enquanto o menu de clique direito ou uma janela aberta
+  a partir dele (nova aba, trocar ícone, confirmar remoção) estava na tela.
+- "Aba..." no Gerenciador abre a lista de abas e vale para vários itens de uma vez
+  (Ctrl ou Shift + clique na lista).
 - `mesadock restore` agora devolve os atalhos arquivados de **todos os perfis**,
   como o botão do Gerenciador; antes cobria só o perfil ativo.
 - `mesadock import` não grava mais arquivos fora da pasta de dados.

@@ -470,3 +470,52 @@ def test_files_put_back_by_mesadock_are_never_taken_again(home, tk_available, tm
         assert [item.name for item in folder.items] == ["novo"]
     finally:
         app.quit()
+
+
+def test_an_open_menu_or_dialog_keeps_the_panel_open(home, tk_available):
+    """Choosing a tab from the item menu moved the pointer off the panel, and the
+    auto-close shut the panel in the middle of it."""
+    app, folder = _app(home)
+    try:
+        app.open_panel(folder, force=True)
+        app.root.update()
+        assert folder.id in app.panels
+        with app.hold_panels():
+            app._schedule_close()
+            assert app._close_timer is None, "no close is even scheduled while held"
+            app._close_now()                       # a timer already running when the menu opened
+            assert folder.id in app.panels and app.panels[folder.id].is_alive()
+        assert app._held == 0
+        app._schedule_close()
+        assert app._close_timer is not None, "auto-close works again afterwards"
+    finally:
+        app.quit()
+
+
+def test_several_items_can_be_filed_under_a_new_tab_at_once(home, tk_available, monkeypatch):
+    from tkinter import simpledialog
+
+    app, folder = _app(home)
+    try:
+        chrome, steam, _notepad, epic = folder.items
+        held = []
+        monkeypatch.setattr(simpledialog, "askstring", lambda *a, **k: held.append(app._held) or "  Jogos ")
+        app.prompt_items_tab(folder.id, [steam.id, epic.id])
+        assert held == [1], "the panel is held while the name is typed"
+        assert steam.tab == epic.tab == "Jogos" and chrome.tab == ""
+        assert folder.tabs == ["Jogos"]
+
+        # the tab menu marks the tab that all the selected items share
+        menu = app.tab_menu(folder, [steam, epic])
+        labels = [menu.entrycget(i, "label") for i in range(menu.index("end") + 1) if menu.type(i) == "command"]
+        assert labels[0].startswith("✓") and "Jogos" in labels[0]
+        assert any("Sem aba" in label or "No tab" in label for label in labels)
+
+        app.set_items_tab(folder.id, [steam.id, epic.id], "")
+        assert folder.tabs == [] and steam.tab == ""
+
+        monkeypatch.setattr(simpledialog, "askstring", lambda *a, **k: "   ")
+        app.prompt_items_tab(folder.id, [chrome.id])
+        assert chrome.tab == "" and folder.tabs == [], "an empty name changes nothing"
+    finally:
+        app.quit()

@@ -192,6 +192,7 @@ _PT = {
     "A backup holds every profile, dock, shortcut and setting. One is also made\nautomatically each day and the last 7 are kept in the data folder.": "O backup guarda todos os perfis, docks, atalhos e configurações. Um também é feito\nautomaticamente a cada dia, e os 7 últimos ficam na pasta de dados.",
     "All": "Todos",
     "Next profile": "Próximo perfil",
+    "Name of the new tab:": "Nome da nova aba:",
 }
 
 

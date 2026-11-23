@@ -362,7 +362,7 @@ class ManagerWindow:
         # Items Table
         table = tk.Frame(tab, bg=theme.BG_ELEVATED)
         columns = ("kind", "target")
-        self.items = ttk.Treeview(table, columns=columns, show="tree headings", selectmode="browse")
+        self.items = ttk.Treeview(table, columns=columns, show="tree headings", selectmode="extended")
         self.items.heading("#0", text=tr("Item"), anchor="w")
         self.items.heading("kind", text=tr("Type"), anchor="w")
         self.items.heading("target", text=tr("Target"), anchor="w")
@@ -397,8 +397,9 @@ class ManagerWindow:
                    command=self._open_selected_item).pack(side="left")
         ttk.Button(row, text=tr("Icon..."), style="Ghost.TButton",
                    command=self._choose_item_icon).pack(side="left", padx=(4, 0))
-        ttk.Button(row, text=tr("Tab..."), style="Ghost.TButton",
-                   command=self._choose_item_tab).pack(side="left", padx=(4, 0))
+        self._tab_button = ttk.Button(row, text=tr("Tab..."), style="Ghost.TButton",
+                                      command=self._choose_item_tab)
+        self._tab_button.pack(side="left", padx=(4, 0))
         ttk.Button(row, text=tr("Remove"), style="Danger.TButton",
                    command=self._remove_item).pack(side="right")
 
@@ -415,12 +416,21 @@ class ManagerWindow:
         self.set_status(tr("Rules saved") if saved else tr("Rules removed"))
 
     def _choose_item_tab(self) -> None:
+        """Menu with the dock's tabs for every selected item (Ctrl/Shift+click
+        selects several at once)."""
         folder = self._selected_folder()
         selection = self.items.selection()
         if folder is None or not selection:
             self.set_status(tr("Select an item first"), error=True)
             return
-        self.app.prompt_item_tab(folder.id, selection[0], parent=self.window)
+        items = [item for item in (folder.item_by_id(i) for i in selection) if item is not None]
+        menu = self.app.tab_menu(folder, items, parent=self.window)
+        button = self._tab_button
+        self.app._popup(menu, button.winfo_rootx(), button.winfo_rooty() + button.winfo_height())
+        self._refresh_items()
+        for item_id in selection:
+            if self.items.exists(item_id):
+                self.items.selection_add(item_id)
 
     def _choose_item_icon(self) -> None:
         folder = self.app.store.folder_by_id(self.selected_id or "")

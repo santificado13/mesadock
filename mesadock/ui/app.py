@@ -59,6 +59,10 @@ class MesaDockApp:
         self._monitor_cache_at = 0.0
         self.peek_active = False
         self.docks_hidden = False
+        # >0 while a context menu or a dialog opened from a dock is on screen:
+        # the pointer is then over that menu/dialog, not over the panel, and the
+        # auto-close used to shut the panel in the middle of choosing a tab.
+        self._held = 0
         self.search = None
         self._portal_signatures: dict[str, tuple] = {}
         self._portal_thread = None
@@ -555,18 +559,38 @@ class MesaDockApp:
             panel.rebuild()
 
     def prompt_item_tab(self, folder_id: str, item_id: str, parent=None) -> None:
+        self.prompt_items_tab(folder_id, [item_id], parent)
+
+    def prompt_items_tab(self, folder_id: str, item_ids: list[str], parent=None) -> None:
+        """Ask for a new tab name and file the items under it."""
         from tkinter import simpledialog
 
         folder = self.store.folder_by_id(folder_id)
-        item = folder.item_by_id(item_id) if folder is not None else None
-        if item is None:
+        items = [folder.item_by_id(i) for i in item_ids] if folder is not None else []
+        items = [item for item in items if item is not None]
+        if not items:
             return
-        hint = tr("Tab name (leave empty for none):")
+        hint = tr("Name of the new tab:")
         if folder.tabs:
             hint += "\n" + tr("Existing tabs: ") + ", ".join(folder.tabs)
-        name = simpledialog.askstring(tr("Tab"), hint, initialvalue=item.tab, parent=parent or self.root)
-        if name is not None:
-            self.set_item_tab(folder_id, item_id, name)
+        with self.hold_panels():
+            name = simpledialog.askstring(tr("Tab"), hint, parent=parent or self.root)
+        if name and name.strip():
+            self.set_items_tab(folder_id, [item.id for item in items], name)
+
+    def set_items_tab(self, folder_id: str, item_ids: list[str], tab: str) -> None:
+        """File several items under one tab at once (\"\" takes them out of any tab)."""
+        folder = self.store.folder_by_id(folder_id)
+        if folder is None:
+            return
+        name = " ".join((tab or "").split())[:24]
+        for item_id in item_ids:
+            item = folder.item_by_id(item_id)
+            if item is not None:
+                item.tab = name
+        self._tidy_tabs(folder)
+        self.touch()
+        self._refresh_dock_views(folder_id)
 
     # -- backup ---------------------------------------------------------------
     def backup_to(self, destination: str) -> bool:
@@ -844,12 +868,13 @@ class MesaDockApp:
     def choose_item_icon(self, folder_id: str, item_id: str, parent=None) -> None:
         from tkinter import filedialog
 
-        path = filedialog.askopenfilename(
-            parent=parent or self.root,
-            title=tr("Choose an icon"),
-            filetypes=[(tr("Images and programs"), " ".join("*" + ext for ext in self.ITEM_ICON_TYPES)),
-                       (tr("All files"), "*.*")],
-        )
+        with self.hold_panels():
+            path = filedialog.askopenfilename(
+                parent=parent or self.root,
+                title=tr("Choose an icon"),
+                filetypes=[(tr("Images and programs"), " ".join("*" + ext for ext in self.ITEM_ICON_TYPES)),
+                           (tr("All files"), "*.*")],
+            )
         if path:
             self.set_item_icon(folder_id, item_id, path)
 
@@ -1069,14 +1094,29 @@ class MesaDockApp:
         self.close_panels(except_dock=folder.id)
         self.open_panel(folder)
 
+    def hold_panels(self):
+        """Context manager: keep open panels open while a menu or dialog runs."""
+        import contextlib
+
+        @contextlib.contextmanager
+        def held():
+            self._held += 1
+            self._cancel_timer("close")
+            try:
+                yield
+            finally:
+                self._held = max(0, self._held - 1)
+
+        return held()
+
     def _schedule_close(self) -> None:
-        if self._close_timer is not None:
+        if self._close_timer is not None or self._held:
             return
         self._close_timer = self.root.after(320, self._close_now)
 
     def _close_now(self) -> None:
         self._close_timer = None
-        if not self.panels:
+        if not self.panels or self._held:
             return
         if not self._hover_enabled():
             return
@@ -1219,10 +1259,7 @@ class MesaDockApp:
         menu.add_separator()
         menu.add_command(label=tr("Remove dock") if folder.portal else tr("Remove dock (restores items)"),
                          command=lambda: self.confirm_remove_dock(folder.id))
-        try:
-            menu.tk_popup(x, y)
-        finally:
-            menu.grab_release()
+        self._popup(menu, x, y)
 
     def confirm_remove_dock(self, folder_id: str) -> None:
         from tkinter import messagebox
@@ -1265,18 +1302,7 @@ class MesaDockApp:
             menu.add_command(label=tr("Remove from dock (leaves the original alone)"),
                              command=lambda: self.confirm_remove(folder, item, restore=False))
         menu.add_separator()
-        tabs = tk.Menu(menu, tearoff=0, bg=theme.BG_ELEVATED, fg=theme.TEXT,
-                       activebackground=theme.ACCENT_SOFT, activeforeground=theme.TEXT,
-                       borderwidth=0, font=theme.font(9))
-        for tab in folder.tabs:
-            tabs.add_command(label=("\u2713 " if item.tab == tab else "   ") + tab,
-                             command=lambda name=tab: self.set_item_tab(folder.id, item.id, name))
-        if folder.tabs:
-            tabs.add_separator()
-        tabs.add_command(label=tr("New tab..."), command=lambda: self.prompt_item_tab(folder.id, item.id))
-        if item.tab:
-            tabs.add_command(label=tr("No tab"), command=lambda: self.set_item_tab(folder.id, item.id, ""))
-        menu.add_cascade(label=tr("Move to tab"), menu=tabs)
+        menu.add_cascade(label=tr("Move to tab"), menu=self.tab_menu(folder, [item], parent=menu))
         menu.add_command(label=tr("Change icon..."),
                          command=lambda: self.choose_item_icon(folder.id, item.id))
         if item.icon:
@@ -1285,10 +1311,32 @@ class MesaDockApp:
         menu.add_separator()
         menu.add_command(label=tr("Manage this dock..."),
                          command=lambda: self.open_manager(select=folder.id, select_item=item.id))
-        try:
-            menu.tk_popup(x, y)
-        finally:
-            menu.grab_release()
+        self._popup(menu, x, y)
+
+    def _popup(self, menu, x: int, y: int) -> None:
+        """Show a context menu; the panel under it stays open meanwhile."""
+        with self.hold_panels():
+            try:
+                menu.tk_popup(x, y)
+            finally:
+                menu.grab_release()
+
+    def tab_menu(self, folder: DockFolder, items: list, parent=None) -> tk.Menu:
+        """Menu to file one or more items under a tab: existing tabs, a new one, none."""
+        tabs = tk.Menu(parent or self.root, tearoff=0, bg=theme.BG_ELEVATED, fg=theme.TEXT,
+                       activebackground=theme.ACCENT_SOFT, activeforeground=theme.TEXT,
+                       borderwidth=0, font=theme.font(9))
+        ids = [item.id for item in items]
+        current = {item.tab for item in items}
+        for tab in folder.tabs:
+            tabs.add_command(label=("\u2713 " if current == {tab} else "   ") + tab,
+                             command=lambda name=tab: self.set_items_tab(folder.id, ids, name))
+        if folder.tabs:
+            tabs.add_separator()
+        tabs.add_command(label=tr("New tab..."), command=lambda: self.prompt_items_tab(folder.id, ids))
+        if current - {""}:
+            tabs.add_command(label=tr("No tab"), command=lambda: self.set_items_tab(folder.id, ids, ""))
+        return tabs
 
     def confirm_remove(self, folder: DockFolder, item: DockItem, restore: bool = True) -> None:
         """Ask before dropping an item from a dock.
@@ -1302,13 +1350,16 @@ class MesaDockApp:
             detail = tr("The shortcut goes back to the desktop.")
         else:
             detail = tr("The shortcut itself is not touched, it just leaves the dock.")
-        if not messagebox.askyesno(
-            tr("Remove from dock"),
-            tr("Remove \"{item}\" from {dock}?").format(item=item.name, dock=folder.name) + "\n\n" + detail,
-            parent=self.root,
-        ):
+        with self.hold_panels():
+            confirmed = messagebox.askyesno(
+                tr("Remove from dock"),
+                tr("Remove \"{item}\" from {dock}?").format(item=item.name, dock=folder.name) + "\n\n" + detail,
+                parent=self.root,
+            )
+        if not confirmed:
             return
         self.remove_item(folder.id, item.id, restore=restore)
+
     # -- manager / tray ----------------------------------------------------
     def _apply_win11_effects(self, window) -> None:
         """Apply Windows 11 rounded corners and dark title bars via DWM."""
