@@ -6,6 +6,8 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
 
 ## [Não lançado]
 
+## [1.2.0] - 2026-11-23
+
 ### Alterado
 - **Ícone novo do aplicativo:** grade 2x2 colorida sobre vidro escuro, com fundo
   transparente e 10 tamanhos (16 a 256 px). O fonte vetorial está em
@@ -54,6 +56,9 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
   termina sem essas linhas indica que o processo foi encerrado de fora.
 
 ### Corrigido
+- Fechar o Gerenciador logo depois de abrir deixava um erro no log.
+- Ao sair, o app espera a thread de fundo e limpa a memória na thread do Tk
+  (evita um encerramento abrupto do Tcl).
 - A opacidade do painel agora é a mesma em todos os estilos: Anel e Leque
   ignoravam a configuração, e a sombra por baixo do cartão escurecia cada
   formato de um jeito. A dock some só enquanto o disco realmente a cobre.
@@ -96,5 +101,6 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
 
 - Primeira versão pública.
 
-[Não lançado]: https://github.com/santificado13/mesadock/compare/v1.1.0...HEAD
+[Não lançado]: https://github.com/santificado13/mesadock/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/santificado13/mesadock/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/santificado13/mesadock/compare/v1.0.0...v1.1.0
