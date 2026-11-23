@@ -118,6 +118,22 @@ class ImageCache:
         self._images.clear()
         self._pillow.clear()
 
+    def forget(self, source: str) -> None:
+        """Drop every cached render of ``source``, at all sizes, memory and disk.
+
+        Needed when a file is replaced in place (a new custom icon saved under the
+        same name): the cache is keyed by path, so it would keep the old picture.
+        """
+        prefix = self._key(source, 0).split("-", 1)[0] + "-"
+        for key in [k for k in self._images if k.startswith(prefix)]:
+            self._images.pop(key, None)
+            self._pillow.pop(key, None)
+        try:
+            for cached in self._cache_dir.glob(prefix + "*.png"):
+                cached.unlink()
+        except OSError:
+            pass
+
     def release(self, source: str, size: int = 64) -> None:
         key = self._key(source, size)
         self._images.pop(key, None)

@@ -131,6 +131,13 @@ _PT = {
     "MesaDock Manager": "MesaDock — Gerenciador",
     "Restored {count} archived item(s)": "{count} item(ns) arquivado(s) restaurado(s)",
     "MesaDock stopped unexpectedly.\n\nSee ": "O MesaDock parou inesperadamente.\n\nVeja ",
+    "Choose a PNG, ICO, JPG, BMP or EXE file": "Escolha um arquivo PNG, ICO, JPG, BMP ou EXE",
+    "Choose an icon": "Escolher ícone",
+    "Images and programs": "Imagens e programas",
+    "Change icon...": "Trocar ícone...",
+    "Use the original icon": "Voltar ao ícone original",
+    "Icon...": "Ícone...",
+    "Select an item first": "Selecione um item primeiro",
 }
 
 

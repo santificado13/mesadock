@@ -7,6 +7,9 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
 ## [Não lançado]
 
 ### Adicionado
+- Ícone personalizado por item: "Trocar ícone..." no clique direito do item no
+  painel e botão "Ícone..." no Gerenciador (PNG, ICO, JPG, BMP ou EXE). A imagem
+  é copiada para a pasta do MesaDock; "Voltar ao ícone original" desfaz.
 - CI no GitHub Actions: lint (ruff) e testes no Windows com Python 3.12 e 3.14
   a cada envio; em tags `v*` o exe é gerado e anexado como artefato.
 

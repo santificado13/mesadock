@@ -345,8 +345,22 @@ class ManagerWindow:
                    command=lambda: self._move_item(1)).pack(side="left", padx=(4, 8))
         ttk.Button(row, text=tr("Open"), style="Ghost.TButton",
                    command=self._open_selected_item).pack(side="left")
+        ttk.Button(row, text=tr("Icon..."), style="Ghost.TButton",
+                   command=self._choose_item_icon).pack(side="left", padx=(4, 0))
         ttk.Button(row, text=tr("Remove"), style="Danger.TButton",
                    command=self._remove_item).pack(side="right")
+
+    def _choose_item_icon(self) -> None:
+        folder = self.app.store.folder_by_id(self.selected_id or "")
+        selection = self.items.selection()
+        if folder is None or not selection:
+            self.set_status(tr("Select an item first"), error=True)
+            return
+        item_id = selection[0]
+        self.app.choose_item_icon(folder.id, item_id, parent=self.window)
+        self._refresh_items()
+        if self.items.exists(item_id):
+            self.items.selection_set(item_id)
 
     def _update_style_buttons(self, active_style: str) -> None:
         for style_key, btn in self._style_buttons.items():

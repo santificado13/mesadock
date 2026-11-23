@@ -332,6 +332,63 @@ class MesaDockApp:
         if dock is not None:
             dock.refresh()
 
+    ITEM_ICON_TYPES = (".png", ".ico", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".exe", ".dll")
+
+    def set_item_icon(self, folder_id: str, item_id: str, source: str | None) -> bool:
+        """Give one item its own icon, or ``None`` to go back to the shortcut's.
+
+        The chosen file is copied into the dock's data folder, so the icon keeps
+        working if the original image is moved or deleted.
+        """
+        import shutil
+
+        folder = self.store.folder_by_id(folder_id)
+        item = folder.item_by_id(item_id) if folder is not None else None
+        if item is None:
+            return False
+        old = item.icon
+        if source:
+            src = Path(source)
+            if not src.is_file() or src.suffix.lower() not in self.ITEM_ICON_TYPES:
+                self.notify(tr("Choose a PNG, ICO, JPG, BMP or EXE file"), error=True)
+                return False
+            target_dir = archive_mod.Archiver(self.store.active_profile.name).items_dir(folder.id) / "icons"
+            target = target_dir / (item.id + src.suffix.lower())
+            try:
+                target_dir.mkdir(parents=True, exist_ok=True)
+                if src.resolve() != target.resolve():
+                    shutil.copy2(src, target)
+            except OSError as exc:
+                self.notify(tr("Could not save: ") + str(exc), error=True)
+                return False
+            item.icon = str(target)
+        else:
+            item.icon = ""
+        # Drop cached renders of the old and the new source, then redraw.
+        for source_path in {old, item.icon} - {""}:
+            self.images.forget(source_path)
+        self.images.clear()
+        self.touch()
+        panel = self.panels.get(folder_id)
+        if panel is not None:
+            panel.rebuild()
+        dock = self.docks.get(folder_id)
+        if dock is not None:
+            dock.refresh()
+        return True
+
+    def choose_item_icon(self, folder_id: str, item_id: str, parent=None) -> None:
+        from tkinter import filedialog
+
+        path = filedialog.askopenfilename(
+            parent=parent or self.root,
+            title=tr("Choose an icon"),
+            filetypes=[(tr("Images and programs"), " ".join("*" + ext for ext in self.ITEM_ICON_TYPES)),
+                       (tr("All files"), "*.*")],
+        )
+        if path:
+            self.set_item_icon(folder_id, item_id, path)
+
     # -- items -------------------------------------------------------------
     def add_paths_to_dock(self, folder_id: str, paths: list[str]) -> int:
         folder = self.store.folder_by_id(folder_id)
@@ -710,6 +767,12 @@ class MesaDockApp:
                          command=lambda: self.confirm_remove(folder, item, restore=True))
         menu.add_command(label=tr("Remove from dock (leaves the original alone)"),
                          command=lambda: self.confirm_remove(folder, item, restore=False))
+        menu.add_separator()
+        menu.add_command(label=tr("Change icon..."),
+                         command=lambda: self.choose_item_icon(folder.id, item.id))
+        if item.icon:
+            menu.add_command(label=tr("Use the original icon"),
+                             command=lambda: self.set_item_icon(folder.id, item.id, None))
         menu.add_separator()
         menu.add_command(label=tr("Manage this dock..."),
                          command=lambda: self.open_manager(select=folder.id, select_item=item.id))

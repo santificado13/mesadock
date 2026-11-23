@@ -5,6 +5,8 @@ data folder is temporary, but real Tk windows are created when a display exists.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 tk = pytest.importorskip("tkinter")
@@ -445,3 +447,40 @@ def test_quit_logs_the_reason_once(home, tk_available, caplog):
         app.quit("second call")
     reasons = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Quit requested")]
     assert reasons == ["Quit requested: tray menu > Quit"]
+
+
+def test_item_icon_can_be_set_replaced_and_reset(home, tk_available, tmp_path):
+    from PIL import Image
+
+    from mesadock.ui.images import item_source
+
+    app, folder = _make_app(home, tk_available)
+    try:
+        item = folder.items[0]
+        red = tmp_path / "red.png"
+        Image.new("RGBA", (48, 48), (220, 30, 30, 255)).save(red)
+        assert app.set_item_icon(folder.id, item.id, str(red))
+        stored = item.icon
+        assert stored and Path(stored).is_file() and Path(stored).parent.name == "icons"
+        assert item_source(item) == stored
+        assert app.images.pillow(stored, 32).getpixel((16, 16))[:3] == (220, 30, 30)
+
+        # Replacing it reuses the same file name: the cached red picture must go.
+        blue = tmp_path / "blue.png"
+        Image.new("RGBA", (48, 48), (30, 60, 220, 255)).save(blue)
+        assert app.set_item_icon(folder.id, item.id, str(blue))
+        assert item.icon == stored
+        assert app.images.pillow(stored, 32).getpixel((16, 16))[:3] == (30, 60, 220)
+
+        red.unlink()  # the copy keeps working without the original
+        assert Path(item.icon).is_file()
+
+        assert app.set_item_icon(folder.id, item.id, None)
+        assert item.icon == ""
+
+        text_file = tmp_path / "notes.txt"
+        text_file.write_text("x", encoding="utf-8")
+        assert not app.set_item_icon(folder.id, item.id, str(text_file))
+        assert item.icon == ""
+    finally:
+        app.quit()
