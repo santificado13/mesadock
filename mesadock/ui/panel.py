@@ -335,7 +335,7 @@ class Panel:
             self._photos.append(photo)
 
     def _highlight(self, index: int, active: bool) -> None:
-        logging.getLogger("mesadock").info("hover: highlight idx=%s active=%s", index, active)
+        logging.getLogger("mesadock").debug("hover: highlight idx=%s active=%s", index, active)
         if self.canvas is None or index >= len(self._hovered_items):
             return
         tag = "hl" + str(index)

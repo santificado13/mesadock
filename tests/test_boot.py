@@ -69,3 +69,40 @@ def test_logging_gives_a_windowed_build_usable_streams(home, monkeypatch):
         raise ValueError("callback failure")
     except ValueError:
         traceback.print_exc()
+
+def test_log_file_is_capped_and_rotated(home, monkeypatch):
+    """The log used to grow forever; it must roll over and keep few backups."""
+    import logging
+
+    from mesadock.core import paths
+
+    monkeypatch.setattr(app_boot, "LOG_MAX_BYTES", 2000)
+    try:
+        app_boot.configure_logging()
+        log = logging.getLogger("mesadock")
+        for index in range(400):
+            log.info("line %04d %s", index, "x" * 40)
+        logging.shutdown()
+        files = sorted(p.name for p in paths.log_file().parent.glob("mesadock.log*") if "faulthandler" not in p.name)
+        assert files == ["mesadock.log", "mesadock.log.1", "mesadock.log.2", "mesadock.log.3"]
+        assert all((paths.log_file().parent / name).stat().st_size <= 2200 for name in files)
+    finally:
+        for handler in logging.getLogger().handlers[:]:
+            handler.close()
+            logging.getLogger().removeHandler(handler)
+
+
+def test_hover_events_are_debug_only(home, monkeypatch):
+    import logging
+
+    monkeypatch.delenv("MESADOCK_DEBUG", raising=False)
+    try:
+        app_boot.configure_logging()
+        assert not logging.getLogger("mesadock").isEnabledFor(logging.DEBUG)
+        monkeypatch.setenv("MESADOCK_DEBUG", "1")
+        app_boot.configure_logging()
+        assert logging.getLogger("mesadock").isEnabledFor(logging.DEBUG)
+    finally:
+        for handler in logging.getLogger().handlers[:]:
+            handler.close()
+            logging.getLogger().removeHandler(handler)

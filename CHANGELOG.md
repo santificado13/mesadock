@@ -16,6 +16,8 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
   termina sem essas linhas indica que o processo foi encerrado de fora.
 
 ### Corrigido
+- O log crescia sem limite: agora gira em 1 MB e guarda só 3 cópias (no
+  máximo ~4 MB). Eventos de passagem do mouse só entram com `MESADOCK_DEBUG=1`.
 - Imports e variáveis sem uso apontados pelo ruff.
 
 ## [1.1.0] - 2026-11-20

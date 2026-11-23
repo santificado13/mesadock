@@ -30,14 +30,32 @@ def _ensure_streams() -> None:
         sys.stderr = stream
 
 
+LOG_MAX_BYTES = 1024 * 1024  # 1 MB per file
+LOG_BACKUPS = 3              # mesadock.log.1 .. .3, so at most ~4 MB in total
+
+
 def configure_logging(verbose: bool = False) -> None:
+    """Log to %APPDATA%/MesaDock/logs/mesadock.log, capped in size.
+
+    The plain FileHandler grew forever; the rotating one starts a new file at
+    1 MB and keeps the last three. Set MESADOCK_DEBUG=1 (or pass verbose) to
+    also record debug lines such as panel hover events.
+    """
+    from logging.handlers import RotatingFileHandler
+
     paths.ensure_dirs()
     _ensure_streams()
-    handlers: list[logging.Handler] = [logging.FileHandler(paths.log_file(), encoding="utf-8")]
+    debug = verbose or os.environ.get("MESADOCK_DEBUG") == "1"
+    # delay=True: a second launch, which only asks the running instance to show
+    # the Manager, does not hold the file open and block the first one's rollover.
+    handlers: list[logging.Handler] = [
+        RotatingFileHandler(paths.log_file(), maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUPS,
+                            encoding="utf-8", delay=True)
+    ]
     if verbose:
         handlers.append(logging.StreamHandler(sys.stdout))
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG if debug else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         handlers=handlers,
         force=True,
