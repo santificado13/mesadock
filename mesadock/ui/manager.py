@@ -336,6 +336,19 @@ class ManagerWindow:
         ttk.Checkbutton(look, text=tr("Tint the icons"), variable=self.tint_var, style="Card.TCheckbutton",
                         command=self._on_tint_toggled).pack(side="left", padx=(18, 0))
 
+        # Automatic rules: new desktop items whose name matches go into this dock
+        rules_row = tk.Frame(tab, bg=theme.BG_ELEVATED)
+        rules_row.pack(fill="x", padx=20, pady=(0, 12))
+        tk.Label(rules_row, text=tr("Rules") + ":", bg=theme.BG_ELEVATED, fg=theme.TEXT_MUTED,
+                 font=theme.font(9)).pack(side="left", padx=(0, 8))
+        self.rules_var = tk.StringVar()
+        self.rules_entry = ttk.Entry(rules_row, textvariable=self.rules_var, width=34)
+        self.rules_entry.pack(side="left")
+        self.rules_entry.bind("<Return>", lambda _e: self._save_rules())
+        self.rules_entry.bind("<FocusOut>", lambda _e: self._save_rules())
+        tk.Label(rules_row, text=tr("new desktop items. E.g. *.pdf, report*"),
+                 bg=theme.BG_ELEVATED, fg=theme.TEXT_DIM, font=theme.font(8)).pack(side="left", padx=(10, 0))
+
         # Actions bar: "Add shortcuts..." as the ONLY Accent action
         actions = tk.Frame(tab, bg=theme.BG_ELEVATED)
         actions.pack(fill="x", padx=20, pady=(0, 12))
@@ -383,8 +396,30 @@ class ManagerWindow:
                    command=self._open_selected_item).pack(side="left")
         ttk.Button(row, text=tr("Icon..."), style="Ghost.TButton",
                    command=self._choose_item_icon).pack(side="left", padx=(4, 0))
+        ttk.Button(row, text=tr("Tab..."), style="Ghost.TButton",
+                   command=self._choose_item_tab).pack(side="left", padx=(4, 0))
         ttk.Button(row, text=tr("Remove"), style="Danger.TButton",
                    command=self._remove_item).pack(side="right")
+
+    def _save_rules(self) -> None:
+        if not hasattr(self, "rules_var"):
+            return
+        folder = self._selected_folder()
+        if folder is None or folder.portal:
+            return
+        if self.rules_var.get().strip() == (folder.rules or ""):
+            return
+        saved = self.app.set_dock_rules(folder.id, self.rules_var.get())
+        self.rules_var.set(saved)
+        self.set_status(tr("Rules saved") if saved else tr("Rules removed"))
+
+    def _choose_item_tab(self) -> None:
+        folder = self._selected_folder()
+        selection = self.items.selection()
+        if folder is None or not selection:
+            self.set_status(tr("Select an item first"), error=True)
+            return
+        self.app.prompt_item_tab(folder.id, selection[0], parent=self.window)
 
     def _choose_item_icon(self) -> None:
         folder = self.app.store.folder_by_id(self.selected_id or "")
@@ -563,11 +598,17 @@ class ManagerWindow:
         folder = self.app.store.folder_by_id(folder_id)
         if folder is None:
             return
+        if self.selected_id and self.selected_id != folder.id:
+            # Typed rules are saved on focus-out, which a click on another dock
+            # does not always cause: save them before the field is refilled.
+            self._save_rules()
         self.selected_id = folder.id
         self.name_var.set(folder.name)
         self.style_var.set(DOCK_STYLE_LABELS.get(folder.style, folder.style))
         self._update_style_buttons(folder.style)
         self._update_look_controls(folder)
+        self.rules_var.set(folder.rules or "")
+        self.rules_entry.configure(state="disabled" if folder.portal else "normal")
         self._refresh_icon()
         count = len(folder.items)
         sub_text = f"{count} " + (tr("1 shortcut") if count == 1 else tr(" shortcuts"))
@@ -607,6 +648,8 @@ class ManagerWindow:
             target = item.target or item.path
             shortened = shorten_target(target)
             kind_label = classify_target(target, item.kind)
+            if item.tab:
+                kind_label += "  \u00b7  " + item.tab
             self.items.insert("", "end", iid=item.id, text=" " + item.name,
                               values=(kind_label, shortened), image=photo or "")
         if self.selected_item_id and self.items.exists(self.selected_item_id):
@@ -943,6 +986,17 @@ class ManagerWindow:
         ttk.Button(row, text=tr("Restore all archived shortcuts"), style="Ghost.TButton",
                    command=self._restore_archived).pack(side="left", padx=8)
 
+        backup_row = tk.Frame(tab, bg=theme.BG_ELEVATED)
+        backup_row.pack(anchor="w", padx=18, pady=(10, 0))
+        ttk.Button(backup_row, text=tr("Back up..."), style="Ghost.TButton",
+                   command=self._backup).pack(side="left")
+        ttk.Button(backup_row, text=tr("Restore a backup..."), style="Ghost.TButton",
+                   command=self._restore_backup).pack(side="left", padx=8)
+        tk.Label(tab, text=tr("A backup holds every profile, dock, shortcut and setting. One is also made\n"
+                              "automatically each day and the last 7 are kept in the data folder."),
+                 bg=theme.BG_ELEVATED, fg=theme.TEXT_DIM, font=theme.font(8), justify="left"
+                 ).pack(anchor="w", padx=18, pady=(6, 0))
+
         danger = tk.Frame(tab, bg=theme.BG_ELEVATED)
         danger.pack(anchor="w", padx=18, pady=(26, 0))
         ttk.Button(danger, text=tr("Quit MesaDock"), style="Danger.TButton",
@@ -974,6 +1028,30 @@ class ManagerWindow:
         except (tk.TclError, ValueError):
             return
         self.app.apply_settings()
+
+    def _backup(self) -> None:
+        import time
+
+        path = filedialog.asksaveasfilename(
+            parent=self.window, title=tr("Save the backup as"), defaultextension=".zip",
+            initialfile="MesaDock-backup-" + time.strftime("%Y%m%d") + ".zip",
+            filetypes=[(tr("MesaDock backup"), "*.zip")])
+        if path:
+            self.app.backup_to(path)
+
+    def _restore_backup(self) -> None:
+        path = filedialog.askopenfilename(
+            parent=self.window, title=tr("Choose the backup to restore"),
+            filetypes=[(tr("MesaDock backup"), "*.zip"), (tr("All files"), "*.*")])
+        if not path:
+            return
+        if not messagebox.askyesno(
+                tr("Restore a backup..."),
+                tr("Replace the current docks, shortcuts and settings with this backup?\n\n"
+                   "What you have now is kept in the data folder, under backups."),
+                parent=self.window):
+            return
+        self.app.restore_from(path)
 
     def _open_data_folder(self) -> None:
         try:

@@ -9,6 +9,7 @@ itself when the pointer leaves both the panel and its dock icon.
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 import math
 import tkinter as tk
@@ -74,6 +75,10 @@ class Panel:
         self._closing = False
         self._anim_job: str | None = None
         self._hovered_items: list[tuple[int, int, int, int]] = []
+        # Items shown right now (those of the selected tab) and where each tab
+        # button sits, in window coordinates: (name, left, top, right, bottom).
+        self._items: list[DockItem] = list(folder.items)
+        self._tab_boxes: list[tuple[str, int, int, int, int]] = []
         self._icon_size = self._resolve_icon_size()
         self._photos: list[ImageTk.PhotoImage] = []
         # None = not tried yet, True = per-pixel alpha works, False = colour-key fallback
@@ -129,10 +134,10 @@ class Panel:
         return math.hypot(dock_x - centre_x, dock_y - centre_y) < radius
 
     def _label_cell_width(self) -> int:
-        if not self._show_labels() or not self.folder.items:
+        if not self._show_labels() or not self._items:
             return 0
         face = self._font(8)
-        widest = max((paint.text_width(item.name or "", face) for item in self.folder.items), default=0)
+        widest = max((paint.text_width(item.name or "", face) for item in self._items), default=0)
         return int(widest) + 16
 
     def _theme_colours(self) -> tuple[str, str, str]:
@@ -141,11 +146,29 @@ class Panel:
             return theme.PANEL_LIGHT_BG, theme.PANEL_LIGHT_BORDER, theme.PANEL_LIGHT_TEXT
         return theme.BG_ELEVATED, theme.BORDER, theme.TEXT
 
+    def _tabs_shown(self) -> bool:
+        """Tabs are a strip across the top of a card; a ring or fan has no top."""
+        return bool(self.folder.tabs) and self.folder.style not in ("ring", "fan")
+
+    def _active_tab(self) -> str:
+        if self._tabs_shown() and self.folder.active_tab in self.folder.tabs:
+            return self.folder.active_tab
+        return ""
+
     def _make_layout(self) -> None:
         scale = getattr(self.monitor, "scale", 1.0) or 1.0
-        self.layout = layout_mod.build_layout(
+        active = self._active_tab()
+        if active:
+            self._items = [item for item in self.folder.items if item.tab == active]
+        else:
+            self._items = list(self.folder.items)
+        # With tabs the panel is sized for all the items and keeps that size on
+        # every tab: resizing moved the tab strip away from under the pointer
+        # (panels open upwards), and in hover mode that closed the panel.
+        slots = len(self.folder.items) if self._tabs_shown() else len(self._items)
+        layout = layout_mod.build_layout(
             self.folder.style,
-            len(self.folder.items),
+            slots,
             icon=self._icon_size,
             gap=int(10 * scale),
             padding=14,
@@ -154,6 +177,62 @@ class Panel:
             max_height=self.monitor.work[3] - 60,
             min_cell_width=self._label_cell_width(),
         )
+        self._tab_boxes = []
+        if self._tabs_shown():
+            layout = self._add_tab_bar(layout, scale)
+        self.layout = layout
+
+    def _tab_label(self, name: str) -> str:
+        return name or tr("All")
+
+    def _add_tab_bar(self, layout, scale: float):
+        """Make room for the tab strip: a taller (and, if needed, wider) layout
+        with every cell moved down, plus the box of each tab button."""
+        face = self._font(8, "semibold")
+        names = [""] + list(self.folder.tabs)
+        pad_x, gap = int(10 * scale), int(6 * scale)
+        bar = int(32 * scale)
+        widths = [paint.text_width(self._tab_label(name), face) + pad_x * 2 for name in names]
+        needed = sum(widths) + gap * (len(widths) - 1) + 28
+        extra = max(0, needed - layout.width)
+        moved = dataclasses.replace(
+            layout,
+            width=layout.width + extra,
+            height=layout.height + bar,
+            cells=[(x + extra // 2, y + bar) for x, y in layout.cells],
+            anchor_x=layout.anchor_x + extra // 2,
+            anchor_y=layout.anchor_y + bar,
+        )
+        left = SHADOW_PAD + 14
+        top = SHADOW_PAD + int(10 * scale)
+        height = bar - int(10 * scale)
+        for name, width in zip(names, widths):
+            self._tab_boxes.append((name, left, top, left + width, top + height))
+            left += width + gap
+        return moved
+
+    def _tab_at(self, x: int, y: int) -> str | None:
+        for name, left, top, right, bottom in self._tab_boxes:
+            if left <= x < right and top <= y < bottom:
+                return name
+        return None
+
+    def _paint_tabs(self, image: Image.Image) -> None:
+        bg, _border, text_colour = self._theme_colours()
+        accent = self._accent()
+        face = self._font(8, "semibold")
+        active = self._active_tab()
+        for name, left, top, right, bottom in self._tab_boxes:
+            width, height = right - left, bottom - top
+            selected = name == active
+            pill = paint.rounded(
+                (width, height), (0, 0, width, height), height / 2,
+                fill=paint.rgba(accent, 78) if selected else paint.rgba(paint.mix(bg, (255, 255, 255), 0.10), 150),
+                outline=paint.rgba(accent, 200) if selected else None, width=1)
+            centre = ((left + right) / 2, (top + bottom) / 2)
+            paint.paste_centre(image, pill, centre)
+            colour = paint.rgba(text_colour) if selected else paint.rgba(paint.mix(text_colour, bg, 0.35))
+            paint.draw_text(image, (centre[0], centre[1] - 1), self._tab_label(name), face, colour)
 
     def _window_size(self) -> tuple[int, int]:
         return self.layout.width + SHADOW_PAD * 2, self.layout.height + SHADOW_PAD * 2
@@ -220,12 +299,12 @@ class Panel:
             return
         self._backdrop = None
         self._hovered_items = []
-        if self.folder.items:
+        if self._items:
             labels = self._show_labels()
             cell_width, cell_height = self.layout.cell_size()
             if not cell_width or not cell_height:
                 cell_width = cell_height = self._icon_size
-            for index, _item in enumerate(self.folder.items):
+            for index, _item in enumerate(self._items):
                 if index >= len(self.layout.cells):
                     break
                 cell_x, cell_y = self.layout.cells[index]
@@ -272,6 +351,7 @@ class Panel:
             image.alpha_composite(paint.rounded(
                 size, (box[0] + 1, box[1] + 1, box[2] - 1, box[3] - 1), 13,
                 outline=paint.rgba(paint.mix(bg, (255, 255, 255), 0.10), 140), width=1))
+            self._paint_tabs(image)
             self._clear_over_dock(image)
         return image
 
@@ -316,7 +396,7 @@ class Panel:
         _bg, _border, text_colour = self._theme_colours()
         width, height = self._window_size()
 
-        if not self.folder.items:
+        if not self._items:
             image = self._backdrop.copy()
             paint.draw_text(image, (width / 2, height / 2 - 9), tr("Empty dock"),
                             self._font(10, "bold"), paint.rgba(text_colour))
@@ -376,7 +456,7 @@ class Panel:
     def _paint_item(self, image: Image.Image, index: int, hovered: bool) -> None:
         bg, _border, text_colour = self._theme_colours()
         accent = self._accent()
-        item = self.folder.items[index]
+        item = self._items[index]
         icon_x, icon_y, side, _side = self._hovered_items[index]
         centre = (icon_x + side / 2, icon_y + side / 2)
         if hovered:
@@ -426,9 +506,9 @@ class Panel:
         icon_side = max(18, int(hub_radius * 0.65))
         name_face = self._font(9, "bold")
         small_face = self._font(8)
-        hovered = 0 <= hover_index < len(self.folder.items)
+        hovered = 0 <= hover_index < len(self._items)
         if hovered:
-            item = self.folder.items[hover_index]
+            item = self._items[hover_index]
             picture = self._item_icon(item, icon_side)
             title = item.name
             title_colour = paint.rgba(accent)
@@ -441,7 +521,7 @@ class Panel:
                 picture = None
             title = self.folder.name
             title_colour = paint.rgba(text_colour)
-            count = len(self.folder.items)
+            count = len(self._items)
             subtitle = f"{count} " + (tr("item") if count == 1 else tr("items"))
             subtitle_colour = paint.rgba(accent)
         if picture is not None:
@@ -496,7 +576,11 @@ class Panel:
         self._render()
 
     def _on_motion(self, event) -> None:
-        self._set_hover(self._index_at(event.x, event.y))
+        index = self._index_at(event.x, event.y)
+        self._set_hover(index)
+        if self.canvas is not None:
+            over_tab = self._tab_at(event.x, event.y) is not None
+            self.canvas.configure(cursor="hand2" if index >= 0 or over_tab else "arrow")
         self.app._pointer_inside_panel(self, True)
 
     def _update_cursor(self, index: int) -> None:
@@ -524,10 +608,14 @@ class Panel:
         self.app._panel_pressed(self)
 
     def _on_click(self, event) -> None:
-        index = self._index_at(event.x, event.y)
-        if index < 0 or index >= len(self.folder.items):
+        tab = self._tab_at(event.x, event.y)
+        if tab is not None:
+            self.app.set_active_tab(self.folder.id, tab)
             return
-        item = self.folder.items[index]
+        index = self._index_at(event.x, event.y)
+        if index < 0 or index >= len(self._items):
+            return
+        item = self._items[index]
         if self.on_launch:
             self.on_launch(self.folder, item)
         self.hide()
@@ -535,7 +623,7 @@ class Panel:
     def _on_right_click(self, event) -> None:
         index = self._index_at(event.x, event.y)
         if self.on_menu is not None and index >= 0:
-            self.on_menu(self.folder, self.folder.items[index], event.x_root, event.y_root)
+            self.on_menu(self.folder, self._items[index], event.x_root, event.y_root)
         else:
             self.app.show_dock_menu(self.folder, event.x_root, event.y_root)
 

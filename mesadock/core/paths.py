@@ -46,6 +46,11 @@ def archive_dir(profile: str | None = None) -> Path:
     return base / _safe_segment(profile) if profile else base
 
 
+def backups_dir() -> Path:
+    """Automatic backups and what a restore replaced (see core.backup)."""
+    return home_dir() / "backups"
+
+
 def icons_cache_dir() -> Path:
     return home_dir() / "icons"
 

@@ -37,6 +37,7 @@ HOTKEYS = {
     # character there (Ctrl+Alt is AltGr) and the hotkey would swallow it.
     3: (MOD_CONTROL | MOD_ALT, ord("F"), "toggle_peek", "Ctrl+Alt+F"),
     4: (MOD_CONTROL | MOD_ALT, ord("H"), "toggle_docks_hidden", "Ctrl+Alt+H"),
+    5: (MOD_CONTROL | MOD_ALT, ord("K"), "next_profile", "Ctrl+Alt+K"),
 }
 NIM_ADD = 0
 NIM_MODIFY = 1
@@ -395,6 +396,10 @@ class TrayIcon:
             for index, profile in enumerate(self.app.store.profiles):
                 profiles.add_command(label=profile.name,
                                      command=lambda i=index: self.app.switch_profile(i))
+            if len(self.app.store.profiles) > 1:
+                profiles.add_separator()
+                profiles.add_command(label=tr("Next profile"), accelerator=key(5),
+                                     command=self.app.next_profile)
             menu.add_cascade(label=tr("Profile"), menu=profiles)
             menu.add_separator()
             menu.add_command(label=tr("Quit MesaDock"), command=lambda: self.app.quit("tray menu > Quit"))

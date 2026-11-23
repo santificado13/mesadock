@@ -7,6 +7,16 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
 ## [Não lançado]
 
 ### Adicionado
+- **Regras automáticas:** cada dock tem um campo Regras (ex.: `*.pdf, relatorio*`).
+  Itens novos na área de trabalho com nome que combina entram sozinhos na dock.
+  Downloads em andamento e arquivos devolvidos pelo próprio MesaDock são ignorados.
+- **Abas dentro do painel:** "Mover para a aba" no clique direito do item, ou o
+  botão "Aba..." no Gerenciador. Vale para Grade, Coluna e Linha.
+- **Backup e restauração:** botões na aba Sobre, mais um backup automático por
+  dia (ficam os 7 últimos). A restauração confere o backup antes, troca as pastas
+  de forma atômica, guarda o estado anterior e ajusta os caminhos se o backup
+  veio de outro usuário ou computador.
+- **Próximo perfil** com Ctrl+Alt+K.
 - **Transparência por pixel:** docks e painéis são compostos como imagem e
   apresentados com alfa real (UpdateLayeredWindow). Bordas lisas em qualquer
   papel de parede, sombra suave e fundo do painel de fato translúcido. Se o

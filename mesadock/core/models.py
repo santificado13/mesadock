@@ -43,6 +43,8 @@ class DockItem(BaseModel):
     args: str = ""
     icon: str = ""
     archived_from: str = ""
+    # Name of the tab this item is filed under inside its dock ("" = none).
+    tab: str = ""
     id: str = Field(default_factory=lambda: new_id("i_"))
     added_at: float = Field(default_factory=_now)
 
@@ -79,6 +81,13 @@ class DockFolder(BaseModel):
     # whether the item icons are recoloured in that accent.
     accent: str = ""
     tint: bool = False
+    # Tabs shown at the top of the panel, and the one currently selected
+    # ("" = all items). Items point at a tab by name (DockItem.tab).
+    tabs: List[str] = Field(default_factory=list)
+    active_tab: str = ""
+    # Automatic rules: name patterns of new desktop items this dock takes
+    # (see core.rules), e.g. "*.pdf, relatorio*".
+    rules: str = ""
     id: str = Field(default_factory=lambda: new_id("f_"))
     created_at: float = Field(default_factory=_now)
 

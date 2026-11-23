@@ -2,16 +2,20 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 import queue
 import tkinter as tk
 from typing import TYPE_CHECKING
 from pathlib import Path
 
+from .. import __version__
 from ..core import archive as archive_mod
+from ..core import backup as backup_mod
 from ..core import layout as layout_mod
 from ..core import paths
 from ..core import portal as portal_mod
+from ..core import rules as rules_mod
 from ..core.i18n import set_lang, tr
 from ..core.models import DockFolder, DockItem
 from ..core.store import Store
@@ -60,6 +64,15 @@ class MesaDockApp:
         self._portal_thread = None
         self._lbutton_down = False
         self._last_desktop_click: tuple[float, int, int] | None = None
+        # Desktop watcher for the automatic rules (worker thread only, except the flag)
+        self._desktop_known: dict[str, tuple[int, int]] | None = None
+        self._desktop_pending: dict[str, tuple[int, int]] = {}
+        # Until this moment (time.monotonic) nothing on the desktop counts as a
+        # new arrival: MesaDock itself is putting files back there.
+        self._desktop_quiet_until = 0.0
+        self._last_auto_backup_check = 0.0
+        # Tests turn this off to drive the watcher by hand, without the thread.
+        self.background_watch = True
 
     # -- monitors ----------------------------------------------------------
     def monitors(self, refresh: bool = False):
@@ -356,13 +369,26 @@ class MesaDockApp:
 
         # No scan here: the worker's first pass does it, so a slow share cannot
         # delay start-up. Until then the dock shows the items saved last time.
-        if self._portal_thread is None:
+        if self._portal_thread is None and self.background_watch:
             self._portal_thread = threading.Thread(target=self._watch_portals, name="mesadock-portals", daemon=True)
             self._portal_thread.start()
 
     def _watch_portals(self) -> None:
         log = logging.getLogger("mesadock")
         while self._running:
+            if time.monotonic() - self._last_auto_backup_check > 3600 or not self._last_auto_backup_check:
+                # At start and then hourly: an app left open for days still gets its daily backup.
+                self._last_auto_backup_check = time.monotonic()
+                try:
+                    made = backup_mod.auto_backup(version=__version__)
+                    if made is not None:
+                        log.info("automatic backup: %s", made.name)
+                except Exception as exc:  # a failed backup must never stop the app
+                    log.warning("automatic backup failed: %s", exc)
+            try:
+                self._scan_desktop_arrivals()
+            except Exception as exc:
+                log.warning("rules: desktop scan failed: %s", exc)
             try:
                 watched = [(f.id, f.portal) for f in list(self.store.folders) if f.portal]
             except Exception:
@@ -384,6 +410,219 @@ class MesaDockApp:
                     return
                 time.sleep(0.1)
 
+    # -- automatic rules ----------------------------------------------------
+    def _scan_desktop_arrivals(self) -> None:
+        """Worker thread: find files that appeared on the desktop since last look.
+
+        Only items that show up while MesaDock runs are considered, never what was
+        already there. A file must look the same on two passes before it is
+        handed over, so a download still being written is left alone.
+        """
+        if not rules_mod.any_rules(list(self.store.folders)):
+            self._desktop_known = None
+            return
+        current: dict[str, tuple[int, int]] = {}
+        for folder in archive_mod.user_desktop_dirs():
+            try:
+                with os.scandir(folder) as entries:
+                    listed = list(entries)
+                    names = {entry.name.lower() for entry in listed}
+                    for entry in listed:
+                        name = entry.name.lower()
+                        if (name in ("desktop.ini", "thumbs.db") or name.startswith("~$")
+                                or name.endswith(self.DOWNLOAD_SUFFIXES)
+                                or any(name + suffix in names for suffix in self.DOWNLOAD_SUFFIXES)):
+                            # a browser's partial download, or the placeholder next to one
+                            continue
+                        try:
+                            # os.stat, not entry.stat(): the directory entry can lag
+                            # behind a file that is still being written.
+                            info = os.stat(entry.path)
+                        except OSError:
+                            continue
+                        if info.st_size == 0 and not entry.is_dir():
+                            continue  # nothing in it yet
+                        current[entry.path] = (info.st_size, info.st_mtime_ns)
+            except OSError:
+                continue
+        known = self._desktop_known
+        if known is None or time.monotonic() < self._desktop_quiet_until:
+            # First look, or MesaDock itself is putting files back on the desktop:
+            # take everything as already there.
+            self._desktop_known = current
+            self._desktop_pending = {}
+            return
+        ready = []
+        for path, stamp in current.items():
+            if path in known:
+                continue
+            if self._desktop_pending.get(path) == stamp and self._readable(path):
+                ready.append(path)
+            else:
+                self._desktop_pending[path] = stamp
+        for path in ready:
+            known[path] = current[path]
+            self._desktop_pending.pop(path, None)
+        for path in [p for p in known if p not in current]:
+            del known[path]
+        for path in [p for p in self._desktop_pending if p not in current]:
+            del self._desktop_pending[path]
+        if ready:
+            self._enqueue_tk(lambda found=ready: self._desktop_arrivals(found))
+
+    DOWNLOAD_SUFFIXES = (".crdownload", ".part", ".partial", ".download", ".opdownload", ".tmp")
+
+    @staticmethod
+    def _readable(path: str) -> bool:
+        """False while another program still holds the file for writing."""
+        if os.path.isdir(path):
+            return True
+        try:
+            with open(path, "rb"):
+                return True
+        except OSError:
+            return False
+
+    def _quiet_desktop(self, seconds: float = 10.0) -> None:
+        """Call before and after MesaDock puts files back on the desktop, so the
+        rules do not take them for new arrivals and file them again."""
+        self._desktop_quiet_until = time.monotonic() + seconds
+
+    def _desktop_arrivals(self, found: list[str]) -> None:
+        """Tk thread: file each new desktop item into the first dock whose rules match."""
+        log = logging.getLogger("mesadock")
+        if time.monotonic() < self._desktop_quiet_until:
+            return  # queued just before a restore started
+        for path in found:
+            if not os.path.exists(path):
+                continue
+            dock = rules_mod.pick_dock(os.path.basename(path), self.store.folders)
+            if dock is None:
+                continue
+            if any(path in (item.target, item.archived_from) for item in dock.items):
+                continue  # already there (copy mode keeps the file on the desktop)
+            log.info("rules: %s -> %s", os.path.basename(path), dock.name)
+            self.add_paths_to_dock(dock.id, [path])
+
+    def set_dock_rules(self, folder_id: str, text: str) -> str:
+        folder = self.store.folder_by_id(folder_id)
+        if folder is None or folder.portal:
+            return ""
+        folder.rules = rules_mod.clean(text)
+        self.touch()
+        return folder.rules
+
+    # -- tabs -----------------------------------------------------------------
+    def set_item_tab(self, folder_id: str, item_id: str, tab: str) -> None:
+        """File an item under a tab of its dock ("" takes it out of any tab)."""
+        folder = self.store.folder_by_id(folder_id)
+        item = folder.item_by_id(item_id) if folder is not None else None
+        if item is None:
+            return
+        item.tab = " ".join((tab or "").split())[:24]
+        self._tidy_tabs(folder)
+        self.touch()
+        self._refresh_dock_views(folder_id)
+
+    @staticmethod
+    def _tidy_tabs(folder: DockFolder) -> None:
+        """Keep only tabs that still hold an item, in their order, new ones last."""
+        used = list(dict.fromkeys(item.tab for item in folder.items if item.tab))
+        folder.tabs = [tab for tab in folder.tabs if tab in used] + [tab for tab in used if tab not in folder.tabs]
+        if folder.active_tab not in folder.tabs:
+            folder.active_tab = ""
+
+    def set_active_tab(self, folder_id: str, tab: str) -> None:
+        folder = self.store.folder_by_id(folder_id)
+        if folder is None:
+            return
+        folder.active_tab = tab if tab in folder.tabs else ""
+        self.touch()
+        panel = self.panels.get(folder_id)
+        if panel is not None:
+            panel.rebuild()
+
+    def prompt_item_tab(self, folder_id: str, item_id: str, parent=None) -> None:
+        from tkinter import simpledialog
+
+        folder = self.store.folder_by_id(folder_id)
+        item = folder.item_by_id(item_id) if folder is not None else None
+        if item is None:
+            return
+        hint = tr("Tab name (leave empty for none):")
+        if folder.tabs:
+            hint += "\n" + tr("Existing tabs: ") + ", ".join(folder.tabs)
+        name = simpledialog.askstring(tr("Tab"), hint, initialvalue=item.tab, parent=parent or self.root)
+        if name is not None:
+            self.set_item_tab(folder_id, item_id, name)
+
+    # -- backup ---------------------------------------------------------------
+    def backup_to(self, destination: str) -> bool:
+        """Save everything now and write a backup zip to ``destination``."""
+        try:
+            self.store.save()
+            backup_mod.create(destination, version=__version__)
+        except Exception as exc:
+            self.notify(tr("Could not create the backup: ") + str(exc), error=True)
+            return False
+        self.notify(tr("Backup saved: ") + os.path.basename(str(destination)))
+        return True
+
+    def restore_from(self, source: str) -> bool:
+        """Replace docks, items and settings with a backup, then reload."""
+        try:
+            backup_mod.read_manifest(source)
+            self.store.save()
+            kept = backup_mod.restore(source)
+        except Exception as exc:
+            self.notify(tr("Could not restore the backup: ") + str(exc), error=True)
+            return False
+        logging.getLogger("mesadock").info("restored %s; previous state kept in %s", source, kept)
+        self.reload_store()
+        if self.store.last_error:
+            self.notify(tr("Could not restore the backup: ") + str(self.store.last_error), error=True)
+            return False
+        self.notify(tr("Backup restored"))
+        return True
+
+    def reload_store(self) -> None:
+        """Read the database again and rebuild every dock from it."""
+        self._cancel_timer("open")
+        self._cancel_timer("close")
+        if self.search is not None:
+            self.search.close()
+        for panel in list(self.panels.values()):
+            panel.hide(animate=False)
+        self.panels.clear()
+        for dock in list(self.docks.values()):
+            dock.destroy()
+        self.docks.clear()
+        self.store = Store().load()
+        if self.store.settings.language:
+            set_lang(self.store.settings.language)
+        self.images.clear()
+        self._portal_signatures.clear()
+        self._quiet_desktop()
+        self.sync_docks()
+        try:
+            if shell.is_windows() and self.store.settings.auto_start != shell.autostart_enabled():
+                shell.set_autostart(self.store.settings.auto_start)
+        except Exception:
+            pass
+        if self.manager is not None and self.manager.is_alive():
+            self.manager.close()
+            self.open_manager()
+
+    def next_profile(self) -> None:
+        """Switch to the following profile (wraps around)."""
+        count = len(self.store.profiles)
+        if count < 2:
+            return
+        self.switch_profile((self.store.active_profile_index + 1) % count)
+        if self.manager is not None and self.manager.is_alive():
+            self.manager.close()
+            self.open_manager()
+
     def _portal_changed(self, folder_id: str, path: str, current: tuple, entries: list | None) -> None:
         folder = self.store.folder_by_id(folder_id)
         if folder is None or folder.portal != path:
@@ -394,6 +633,7 @@ class MesaDockApp:
             # dock shows, with its ids and custom icons, until it is back.
             return
         if portal_mod.sync_items(folder, entries):
+            self._tidy_tabs(folder)
             self.touch()
             self._refresh_dock_views(folder_id)
 
@@ -481,11 +721,13 @@ class MesaDockApp:
         folder = self.store.folder_by_id(folder_id)
         if folder is None:
             return
+        self._quiet_desktop()
         if restore:
             archiver = archive_mod.Archiver(self.store.active_profile.name, self.store.settings.archive_mode)
             archiver.restore_all(folder.items)
         self.store.remove_folder(folder_id)
         self._portal_signatures.pop(folder_id, None)
+        self._quiet_desktop()
         self.touch()
         self.sync_docks()
 
@@ -670,10 +912,12 @@ class MesaDockApp:
             return
         if self._portal_is_read_only(folder, adding=False):
             return
+        self._quiet_desktop()  # a restored file is not a new arrival
         if restore:
             archiver = archive_mod.Archiver(self.store.active_profile.name, self.store.settings.archive_mode)
             archiver.release_item(item)
         folder.remove_item(item_id)
+        self._tidy_tabs(folder)
         self.touch()
         dock = self.docks.get(folder_id)
         if dock is not None:
@@ -1009,6 +1253,18 @@ class MesaDockApp:
             menu.add_command(label=tr("Remove from dock (leaves the original alone)"),
                              command=lambda: self.confirm_remove(folder, item, restore=False))
         menu.add_separator()
+        tabs = tk.Menu(menu, tearoff=0, bg=theme.BG_ELEVATED, fg=theme.TEXT,
+                       activebackground=theme.ACCENT_SOFT, activeforeground=theme.TEXT,
+                       borderwidth=0, font=theme.font(9))
+        for tab in folder.tabs:
+            tabs.add_command(label=("\u2713 " if item.tab == tab else "   ") + tab,
+                             command=lambda name=tab: self.set_item_tab(folder.id, item.id, name))
+        if folder.tabs:
+            tabs.add_separator()
+        tabs.add_command(label=tr("New tab..."), command=lambda: self.prompt_item_tab(folder.id, item.id))
+        if item.tab:
+            tabs.add_command(label=tr("No tab"), command=lambda: self.set_item_tab(folder.id, item.id, ""))
+        menu.add_cascade(label=tr("Move to tab"), menu=tabs)
         menu.add_command(label=tr("Change icon..."),
                          command=lambda: self.choose_item_icon(folder.id, item.id))
         if item.icon:
@@ -1149,6 +1405,7 @@ class MesaDockApp:
 
     def emergency_restore_all(self) -> int:
         """Put every archived desktop item back (uninstall-time safety net)."""
+        self._quiet_desktop(30.0)
         restored = 0
         for profile in self.store.profiles:
             local = archive_mod.Archiver(profile.name, self.store.settings.archive_mode)

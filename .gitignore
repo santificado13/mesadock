@@ -27,3 +27,6 @@ desktop.ini
 
 # Isolated build environment (build.ps1)
 .venv-build/
+
+# Local safety copies of the exe and of user data
+backups/
