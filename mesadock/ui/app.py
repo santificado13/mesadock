@@ -1355,8 +1355,11 @@ class MesaDockApp:
         self.manager.show()
         
         # Aplicamos com um pequeno delay para garantir que o Tkinter ja alocou o HWND da janela
-        if hasattr(self.manager, 'window'):
-            self.root.after(50, lambda: self._apply_win11_effects(self.manager.window))
+        # The Manager may be closed again within those 50 ms (self.manager is then
+        # None), so the callback keeps its own reference and checks it is alive.
+        manager = self.manager
+        if hasattr(manager, 'window'):
+            self.root.after(50, lambda: manager.is_alive() and self._apply_win11_effects(manager.window))
 
     def closed_manager(self) -> None:
         self.manager = None
