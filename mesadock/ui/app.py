@@ -714,6 +714,7 @@ class MesaDockApp:
             on_close=lambda p: self.panels.pop(folder.id, None),
         )
         self.panels[folder.id] = panel
+        self._redraw_dock(folder.id)  # a ring/fan panel hides the dock it covers
 
     def close_panel(self, folder_id: str) -> None:
         panel = self.panels.pop(folder_id, None)
@@ -756,6 +757,12 @@ class MesaDockApp:
         # unregister the new panel that was opened for the same dock meanwhile.
         if self.panels.get(panel.folder.id) is panel:
             self.panels.pop(panel.folder.id, None)
+        self._redraw_dock(panel.folder.id)
+
+    def _redraw_dock(self, folder_id: str) -> None:
+        dock = self.docks.get(folder_id)
+        if dock is not None and dock.is_alive():
+            dock._draw()
 
     def _pointer_inside_panel(self, panel: Panel, inside: bool) -> None:
         self._pointer_in_panel = inside

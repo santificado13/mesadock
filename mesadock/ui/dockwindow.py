@@ -284,12 +284,23 @@ class DockWindow:
     def _label_face(self):
         return paint.font(paint.points_to_pixels(9, self._dpi()), "semibold")
 
+    def _under_own_panel(self) -> bool:
+        """A ring or fan panel opens on top of its dock; the dock then steps aside
+        so it does not show through a translucent disc. Derived from the live
+        panel every time, so a dock can never be left invisible."""
+        panel = self.app.panels.get(self.folder.id)
+        try:
+            return bool(panel is not None and panel.covers_dock())
+        except (tk.TclError, AttributeError):
+            return False
+
     def _show(self, image: Image.Image) -> None:
         self._image = image
         if self._layered is not False:
             try:
                 self.window.update_idletasks()
-                shown = layered.present(int(self.window.winfo_id()), image)
+                shown = layered.present(int(self.window.winfo_id()), image,
+                                        opacity=0.0 if self._under_own_panel() else 1.0)
             except tk.TclError:
                 return
             if shown:

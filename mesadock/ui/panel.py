@@ -79,6 +79,7 @@ class Panel:
         # None = not tried yet, True = per-pixel alpha works, False = colour-key fallback
         self._layered: bool | None = None
         self._backdrop: Image.Image | None = None
+        self._idle: Image.Image | None = None
         self._image: Image.Image | None = None
         self._opacity = 1.0
         self._slide = 0
@@ -111,10 +112,28 @@ class Panel:
             opacity = float(settings.panel_opacity)
         except (TypeError, ValueError):
             opacity = 0.92
-        alpha = int(255 * max(0.35, min(1.0, opacity)))
-        # Ring and fan open on top of their own dock; a see-through disc showed
-        # the dock icon and its name through the middle of the panel.
-        return max(alpha, 244) if self._is_radial() else alpha
+        # The same for every style. Ring and fan open on top of their own dock,
+        # which would show through the disc: the dock hides itself meanwhile
+        # (see covers_dock) instead of the disc ignoring this setting.
+        return int(255 * max(0.35, min(1.0, opacity)))
+
+    def covers_dock(self) -> bool:
+        """True while this panel's disc really sits on top of its own dock.
+
+        Ring and fan are centred on the dock when there is room; near a screen
+        edge the disc is pushed aside and the dock stays next to it, in which
+        case it must remain visible.
+        """
+        if not (self._is_radial() and not self._closing and self.is_alive()):
+            return False
+        anchor = getattr(self, "_anchor", None)
+        if not anchor or self.layout is None:
+            return False
+        dock_x, dock_y = anchor[0] + anchor[2] / 2, anchor[1] + anchor[3] / 2
+        centre_x = self.layout_origin[0] + self.layout.width / 2
+        centre_y = self.layout_origin[1] + self.layout.height / 2
+        radius = min(self.layout.width, self.layout.height) / 2
+        return math.hypot(dock_x - centre_x, dock_y - centre_y) < radius
 
     def _label_cell_width(self) -> int:
         if not self._show_labels() or not self.folder.items:
@@ -245,7 +264,8 @@ class Panel:
             cx, cy = pad + width / 2, pad + height / 2
             radius = min(width, height) / 2 - 2
             box = (cx - radius, cy - radius, cx + radius, cy + radius)
-            image.alpha_composite(paint.shadow(size, box, 0, blur=11, offset=(0, 6), opacity=120, round_shape=True))
+            image.alpha_composite(paint.outer_shadow(size, box, 0, blur=11, offset=(0, 6), opacity=120,
+                                                     round_shape=True))
             image.alpha_composite(paint.ellipse(size, box, fill=paint.rgba(bg, alpha),
                                                 outline=paint.rgba(paint.mix(border, accent, 0.35), 255), width=1))
             image.alpha_composite(paint.ellipse(
@@ -253,7 +273,7 @@ class Panel:
                 outline=paint.rgba(paint.mix(bg, (255, 255, 255), 0.10), 150), width=1))
         else:
             box = (pad + 1, pad + 1, pad + width - 1, pad + height - 1)
-            image.alpha_composite(paint.shadow(size, box, 14, blur=11, offset=(0, 6), opacity=120))
+            image.alpha_composite(paint.outer_shadow(size, box, 14, blur=11, offset=(0, 6), opacity=120))
             image.alpha_composite(paint.rounded(size, box, 14, fill=paint.rgba(bg, alpha),
                                                 outline=paint.rgba(paint.mix(border, accent, 0.30), 255), width=1))
             image.alpha_composite(paint.rounded(
@@ -291,49 +311,97 @@ class Panel:
         return picture
 
     def _compose(self) -> Image.Image:
+        """The panel picture for the current hover state.
+
+        Painting every icon and name takes tens of milliseconds on a big dock, too
+        slow to follow the pointer. So the resting picture is painted once and
+        kept; a hover only repaints the item under the pointer (and the ring hub).
+        """
         if self._backdrop is None:
             self._backdrop = self._compose_backdrop()
-        image = self._backdrop.copy()
+            self._idle = None
         _bg, _border, text_colour = self._theme_colours()
-        accent = self._accent()
         width, height = self._window_size()
 
         if not self.folder.items:
+            image = self._backdrop.copy()
             paint.draw_text(image, (width / 2, height / 2 - 9), tr("Empty dock"),
                             self._font(10, "bold"), paint.rgba(text_colour))
             paint.draw_text(image, (width / 2, height / 2 + 11), tr("Add shortcuts..."),
                             self._font(8), paint.rgba(theme.TEXT_MUTED))
             return image
 
-        if self.layout.style == "ring":
-            cx, cy, _orbit, _cw, _ch, hub_radius = self._ring_geometry()
-            if hub_radius:
-                self._compose_hub(image, cx, cy, hub_radius, text_colour)
+        hub = self._ring_geometry() if self.layout.style == "ring" else None
+        if hub is not None and not hub[5]:
+            hub = None
+        if self._idle is None:
+            idle = self._backdrop.copy()
+            if hub is not None:
+                self._compose_hub(idle, hub[0], hub[1], hub[5], text_colour, -1)
+            for index in range(len(self._hovered_items)):
+                self._paint_item(idle, index, False)
+            self._idle = idle
 
-        labels = self._show_labels()
+        image = self._idle.copy()
+        hovered = self._hover_index
+        if 0 <= hovered < len(self._hovered_items):
+            self._restore(image, self._item_box(hovered))
+            self._paint_item(image, hovered, True)
+            if hub is not None:
+                radius = hub[5] + 2
+                self._restore(image, (hub[0] - radius, hub[1] - radius, hub[0] + radius, hub[1] + radius))
+                self._compose_hub(image, hub[0], hub[1], hub[5], text_colour, hovered)
+        return image
+
+    def _restore(self, image: Image.Image, box) -> None:
+        """Put the bare backdrop back inside ``box`` before repainting there."""
+        left, top = max(0, int(box[0])), max(0, int(box[1]))
+        right, bottom = min(image.width, int(box[2]) + 1), min(image.height, int(box[3]) + 1)
+        if right > left and bottom > top:
+            image.paste(self._backdrop.crop((left, top, right, bottom)), (left, top))
+
+    def _label_width(self, centre_x: float, side: float) -> int:
+        """Never wider than what fits between the item and the nearest side of the
+        panel: a long name on the edge of a ring was cut off there."""
         cell_width, _cell_height = self.layout.cell_size()
         if not cell_width:
             cell_width = self._icon_size
-        label_face = self._font(8)
-        for index, (icon_x, icon_y, side, _side) in enumerate(self._hovered_items):
-            item = self.folder.items[index]
-            hovered = index == self._hover_index
-            centre = (icon_x + side / 2, icon_y + side / 2)
-            if hovered:
-                pad = 6
-                plate = paint.rounded(
-                    (side + pad * 2, side + pad * 2), (0, 0, side + pad * 2, side + pad * 2), 10,
-                    fill=paint.rgba(accent, 52), outline=paint.rgba(accent, 150), width=1)
-                paint.paste_centre(image, plate, centre)
-            picture = self._item_icon(item, int(side * 1.15) if hovered else side)
-            if picture is not None:
-                paint.paste_centre(image, picture, centre)
-            if labels:
-                label_width = max(side + 8, cell_width - 4)
-                text = paint.fit_text(item.name, label_face, label_width)
-                colour = paint.rgba(paint.mix(text_colour, accent, 0.35) if hovered else text_colour)
-                paint.draw_text(image, (centre[0], icon_y + side + 5), text, label_face, colour, anchor="ma")
-        return image
+        width, _height = self._window_size()
+        inner_left, inner_right = SHADOW_PAD + 8, width - SHADOW_PAD - 8
+        room = 2 * min(centre_x - inner_left, inner_right - centre_x)
+        return int(max(side, min(max(side + 8, cell_width - 4), room)))
+
+    def _item_box(self, index: int) -> tuple[float, float, float, float]:
+        """Everything one item paints: hover plate, enlarged icon and its name."""
+        icon_x, icon_y, side, _side = self._hovered_items[index]
+        centre_x = icon_x + side / 2
+        half = max(side * 1.15 / 2 + 8, (self._label_width(centre_x, side) / 2 + 6) if self._show_labels() else 0)
+        line = paint.points_to_pixels(8, self._dpi()) + 12
+        return (centre_x - half, icon_y - side * 0.08 - 8, centre_x + half,
+                icon_y + side + 8 + (line if self._show_labels() else side * 0.08))
+
+    def _paint_item(self, image: Image.Image, index: int, hovered: bool) -> None:
+        bg, _border, text_colour = self._theme_colours()
+        accent = self._accent()
+        item = self.folder.items[index]
+        icon_x, icon_y, side, _side = self._hovered_items[index]
+        centre = (icon_x + side / 2, icon_y + side / 2)
+        if hovered:
+            pad = 6
+            plate = paint.rounded(
+                (side + pad * 2, side + pad * 2), (0, 0, side + pad * 2, side + pad * 2), 10,
+                fill=paint.rgba(accent, 52), outline=paint.rgba(accent, 150), width=1)
+            paint.paste_centre(image, plate, centre)
+        picture = self._item_icon(item, int(side * 1.15) if hovered else side)
+        if picture is not None:
+            paint.paste_centre(image, picture, centre)
+        if self._show_labels():
+            face = self._font(8)
+            text = paint.fit_text(item.name, face, self._label_width(centre[0], side))
+            colour = paint.rgba(paint.mix(text_colour, accent, 0.35) if hovered else text_colour)
+            # On a see-through card the names get an outline in the card's colour.
+            halo = paint.rgba(bg, 205) if self._background_alpha() < 215 else None
+            paint.draw_text(image, (centre[0], icon_y + side + 5), text, face, colour, anchor="ma", halo=halo)
 
     def _ring_geometry(self) -> tuple[float, float, float, int, int, float]:
         """Hub centre (window coordinates), orbit, cell size and hub radius."""
@@ -352,7 +420,8 @@ class Panel:
             hub_radius = 0.0
         return cx + SHADOW_PAD, cy + SHADOW_PAD, orbit, cell_w, cell_h, hub_radius
 
-    def _compose_hub(self, image: Image.Image, cx: float, cy: float, hub_radius: float, text_colour: str) -> None:
+    def _compose_hub(self, image: Image.Image, cx: float, cy: float, hub_radius: float, text_colour: str,
+                     hover_index: int) -> None:
         """Centre plate: the hovered item's name, or the dock's when nothing is hovered."""
         accent = self._accent()
         side = int(hub_radius * 2) + 2
@@ -364,9 +433,9 @@ class Panel:
         icon_side = max(18, int(hub_radius * 0.65))
         name_face = self._font(9, "bold")
         small_face = self._font(8)
-        hovered = 0 <= self._hover_index < len(self.folder.items)
+        hovered = 0 <= hover_index < len(self.folder.items)
         if hovered:
-            item = self.folder.items[self._hover_index]
+            item = self.folder.items[hover_index]
             picture = self._item_icon(item, icon_side)
             title = item.name
             title_colour = paint.rgba(accent)
@@ -511,6 +580,7 @@ class Panel:
             return
         self._closing = True
         self._cancel_animation()
+        self.app._redraw_dock(self.folder.id)  # the dock under a ring/fan comes back
         if animate and self.app.store.settings.animations and self.window is not None:
             start = max(0.05, self._opacity)
             steps = {"left": FADE_OUT_STEPS}

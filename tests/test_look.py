@@ -165,7 +165,7 @@ def test_panel_has_a_shadow_margin_and_reacts_to_hover(home, tk_available, style
         assert image.size == (panel.layout.width + pad * 2, panel.layout.height + pad * 2)
         assert image.getpixel((0, 0))[3] == 0, "the far corner of the shadow margin is clear"
         middle = image.getpixel((image.width // 2, image.height // 2))
-        assert middle[3] >= (244 if style in ("ring", "fan") else 200)
+        assert middle[3] >= 200  # default opacity 0.92, the same for every style
 
         # The shadow margin is not part of the panel for pointer tracking.
         left, top = panel.layout_origin
@@ -307,3 +307,112 @@ def test_paste_centre_ignores_pictures_outside_the_target():
     assert target.getbbox() is None
     paint.paste_centre(target, picture, (0, 0))      # partly inside: clipped, not an error
     assert target.getpixel((1, 1))[3] == 255
+
+
+def _background_alpha_at_rim(panel):
+    """Alpha of the card where nothing else is drawn: just inside the edge."""
+    from mesadock.ui import panel as panel_mod
+
+    pad = panel_mod.SHADOW_PAD
+    image = panel._image
+    if panel.layout.style in ("ring", "fan"):
+        radius = min(panel.layout.width, panel.layout.height) / 2 - 2
+        cx, cy = pad + panel.layout.width / 2, pad + panel.layout.height / 2
+        # on the diagonal, clear of the items and of the rim lines
+        point = (int(cx - radius * 0.64), int(cy - radius * 0.64))
+    else:
+        point = (pad + 7, pad + panel.layout.height // 2)  # inside the left padding
+    return image.getpixel(point)[3]
+
+
+def test_every_style_uses_the_same_panel_opacity(home, tk_available):
+    """Ring and fan used to ignore the setting and stay nearly opaque."""
+    alphas = {}
+    for style in ("grid", "ring", "fan", "column"):
+        app, folder = _app(home, style=style, items=4)
+        try:
+            app.store.settings.panel_opacity = 0.5
+            app.pin_panels(True)
+            app.open_panel(folder, force=True)
+            app.root.update()
+            alphas[style] = _background_alpha_at_rim(app.panels[folder.id])
+        finally:
+            app.quit()
+    assert all(abs(alpha - 127) <= 4 for alpha in alphas.values()), alphas
+
+
+def test_the_dock_steps_aside_only_under_a_ring_or_fan_panel(home, tk_available):
+    for style, expected in (("ring", True), ("fan", True), ("grid", False)):
+        app, folder = _app(home, style=style, items=4)
+        try:
+            dock = app.docks[folder.id]
+            assert dock._under_own_panel() is False
+            app.pin_panels(True)
+            app.open_panel(folder, force=True)
+            app.root.update()
+            panel = app.panels[folder.id]
+            if expected:
+                # Centre the disc on the dock, as it is when there is room on screen.
+                left, top, width, height = dock.rect()
+                panel._anchor = (left, top, width, height)
+                panel.layout_origin = (int(left + width / 2 - panel.layout.width / 2),
+                                       int(top + height / 2 - panel.layout.height / 2))
+            assert dock._under_own_panel() is expected, style
+            if expected:
+                # Pushed aside by a screen edge, the dock is next to the disc: it stays.
+                panel.layout_origin = (panel.layout_origin[0] + panel.layout.width, panel.layout_origin[1])
+                assert dock._under_own_panel() is False
+                panel.layout_origin = (panel.layout_origin[0] - panel.layout.width, panel.layout_origin[1])
+            app.close_panel(folder.id)
+            app.root.update()
+            assert dock._under_own_panel() is False, "the dock is back once the panel closes"
+        finally:
+            app.quit()
+
+
+def test_text_halo_outlines_the_letters_without_touching_the_rest():
+    face = paint.font(14)
+    plain = Image.new("RGBA", (120, 40), (0, 0, 0, 0))
+    haloed = Image.new("RGBA", (120, 40), (0, 0, 0, 0))
+    paint.draw_text(plain, (60, 20), "Nome", face, (255, 255, 255, 255))
+    paint.draw_text(haloed, (60, 20), "Nome", face, (255, 255, 255, 255), halo=(10, 20, 30, 205))
+    covered = lambda image: sum(1 for value in image.getchannel("A").tobytes() if value)  # noqa: E731
+    assert covered(haloed) > covered(plain) * 1.5, "the outline adds pixels around the letters"
+    assert haloed.getpixel((2, 2))[3] == 0, "far from the text nothing is painted"
+    paint.draw_text(haloed, (-500, -500), "fora", face, (255, 255, 255, 255), halo=(0, 0, 0, 255))  # no error
+
+
+def test_translucent_panels_outline_their_names_and_opaque_ones_do_not(home, tk_available):
+    app, folder = _app(home, items=2)
+    try:
+        app.pin_panels(True)
+        app.open_panel(folder, force=True)
+        app.root.update()
+        panel = app.panels[folder.id]
+        app.store.settings.panel_opacity = 1.0
+        panel.rebuild()
+        opaque = panel._image.tobytes()
+        app.store.settings.panel_opacity = 0.4
+        panel.rebuild()
+        assert panel._background_alpha() < 215 and panel._image.tobytes() != opaque
+    finally:
+        app.quit()
+
+
+def test_hover_repaints_only_from_the_cached_resting_picture(home, tk_available):
+    app, folder = _app(home, style="ring", items=6)
+    try:
+        app.pin_panels(True)
+        app.open_panel(folder, force=True)
+        app.root.update()
+        panel = app.panels[folder.id]
+        resting = panel._image.tobytes()
+        for index in (0, 3, 5, 2):
+            panel._set_hover(index)
+        first = panel._image.tobytes()
+        panel._set_hover(-1)
+        assert panel._image.tobytes() == resting, "no leftovers from earlier hovers"
+        panel._set_hover(2)
+        assert panel._image.tobytes() == first, "the same hover always paints the same picture"
+    finally:
+        app.quit()

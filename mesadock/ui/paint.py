@@ -9,7 +9,7 @@ from __future__ import annotations
 import functools
 import os
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 SUPERSAMPLE = 3
 _FONT_FILES = {
@@ -109,6 +109,24 @@ def shadow(size: tuple[int, int], box, radius: float, blur: float = 10, offset: 
     return layer.filter(ImageFilter.GaussianBlur(blur))
 
 
+def outer_shadow(size: tuple[int, int], box, radius: float, blur: float = 10, offset: tuple[int, int] = (0, 4),
+                 opacity: int = 110, round_shape: bool = False) -> Image.Image:
+    """Like :func:`shadow`, but only outside the shape that casts it.
+
+    Under a translucent card the shadow would show through and darken it, by a
+    different amount for each shape, so the same opacity setting looked different
+    on a card and on a disc. Cutting the shape out keeps the card exactly as
+    translucent as asked.
+    """
+    layer = shadow(size, box, radius, blur, offset, opacity, round_shape)
+    if round_shape:
+        cut = ellipse(layer.size, box, fill=(255, 255, 255, 255))
+    else:
+        cut = rounded(layer.size, box, radius, fill=(255, 255, 255, 255))
+    layer.putalpha(ImageChops.subtract(layer.getchannel("A"), cut.getchannel("A")))
+    return layer
+
+
 def paste_centre(target: Image.Image, picture: Image.Image, centre: tuple[float, float]) -> None:
     """Alpha-composite ``picture`` centred on a point of ``target``, in place."""
     if picture.mode != "RGBA":
@@ -122,9 +140,25 @@ def paste_centre(target: Image.Image, picture: Image.Image, centre: tuple[float,
 
 
 def draw_text(target: Image.Image, position: tuple[float, float], text: str, face: ImageFont.ImageFont,
-              fill, anchor: str = "mm") -> None:
-    if text:
-        ImageDraw.Draw(target).text(position, text, font=face, fill=fill, anchor=anchor)
+              fill, anchor: str = "mm", halo=None) -> None:
+    """Draw ``text``; ``halo`` (a colour) adds a thin outline around the letters,
+    which keeps them readable on a see-through panel over a busy wallpaper."""
+    if not text:
+        return
+    draw = ImageDraw.Draw(target)
+    if halo is not None:
+        # On a layer just big enough for this text: blurring one the size of the
+        # whole panel for every name made a 60-item panel take most of a second.
+        margin = 4
+        left, top, right, bottom = draw.textbbox(position, text, font=face, anchor=anchor, stroke_width=2)
+        left, top = int(left) - margin, int(top) - margin
+        layer = Image.new("RGBA", (int(right) - left + margin, int(bottom) - top + margin), (0, 0, 0, 0))
+        ImageDraw.Draw(layer).text((position[0] - left, position[1] - top), text, font=face, fill=halo,
+                                   anchor=anchor, stroke_width=2, stroke_fill=halo)
+        layer = layer.filter(ImageFilter.GaussianBlur(0.8))
+        if left < target.width and top < target.height and left + layer.width > 0 and top + layer.height > 0:
+            target.alpha_composite(layer, (max(0, left), max(0, top)), (max(0, -left), max(0, -top)))
+    draw.text(position, text, font=face, fill=fill, anchor=anchor)
 
 
 def tint(picture: Image.Image, colour, strength: float = 0.6) -> Image.Image:

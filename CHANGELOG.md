@@ -36,6 +36,12 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
   termina sem essas linhas indica que o processo foi encerrado de fora.
 
 ### Corrigido
+- A opacidade do painel agora é a mesma em todos os estilos: Anel e Leque
+  ignoravam a configuração, e a sombra por baixo do cartão escurecia cada
+  formato de um jeito. A dock some só enquanto o disco realmente a cobre.
+- Nomes ganham um contorno fino em painéis translúcidos, para continuar
+  legíveis sobre fundos movimentados; nome longo na borda do Anel não é mais
+  cortado. Passar o mouse repinta só o item afetado.
 - Atalhos de apps da web do Chrome/Edge (e outros com ícone próprio) perdiam o
   desenho ao entrar na dock: o ícone era lido do `chrome_proxy.exe`. Agora vale
   o ícone indicado no próprio atalho, e arquivos `.ico` são lidos no tamanho máximo.
