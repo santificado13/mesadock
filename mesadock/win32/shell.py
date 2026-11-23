@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import ctypes
+import functools
 import ctypes.wintypes as wintypes
 import io
 import os
@@ -175,6 +176,59 @@ def _run_vbs(script: str) -> subprocess.CompletedProcess | None:
 def _vbs_quote(value: str) -> str:
     """Escape a value for a VBScript string literal."""
     return str(value).replace('"', '""')
+
+
+def shortcut_icon_location(path: str | Path) -> tuple[str, int]:
+    """The icon file and index a .lnk asks for, or ("", 0) when it names none.
+
+    Web apps installed by Chrome or Edge point at chrome_proxy.exe/msedge_proxy.exe,
+    which has no icon of its own; the real artwork is a .ico named here. Read with
+    pylnk3 in memory (no cscript process), cached by path and modification time.
+    """
+    shortcut = Path(path)
+    try:
+        stamp = shortcut.stat().st_mtime_ns
+    except OSError:
+        return "", 0
+    return _shortcut_icon_cached(str(shortcut), stamp)
+
+
+@functools.lru_cache(maxsize=512)
+def _shortcut_icon_cached(path: str, _stamp: int) -> tuple[str, int]:
+    try:
+        import pylnk3
+
+        with open(path, "rb") as stream:
+            lnk = pylnk3.parse(io.BytesIO(stream.read()))
+        icon = os.path.expandvars(str(lnk.icon or "")).strip().strip('"')
+        index = int(lnk.icon_index or 0)
+    except Exception:
+        return "", 0
+    if not icon or not os.path.isfile(icon):
+        return "", 0
+    return icon, index
+
+
+@functools.lru_cache(maxsize=1)
+def default_browser_icon() -> str:
+    """Executable of the default https handler (the browser), or "".
+
+    Used as the icon of web links: Windows often gives a .url file a blank page.
+    """
+    if not is_windows():
+        return ""
+    try:
+        import winreg
+
+        key_path = r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+            prog_id = winreg.QueryValueEx(key, "ProgId")[0]
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, prog_id + r"\DefaultIcon") as key:
+            value = str(winreg.QueryValueEx(key, "")[0])
+    except (OSError, ImportError, IndexError):
+        return ""
+    icon = os.path.expandvars(value.rsplit(",", 1)[0] if "," in value else value).strip().strip('"')
+    return icon if os.path.isfile(icon) else ""
 
 
 def _read_shortcut_via_vbs(shortcut: Path) -> dict[str, str]:

@@ -16,6 +16,10 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
   termina sem essas linhas indica que o processo foi encerrado de fora.
 
 ### Corrigido
+- Atalhos de apps da web do Chrome/Edge (e outros com ícone próprio) perdiam o
+  desenho ao entrar na dock: o ícone era lido do `chrome_proxy.exe`. Agora vale
+  o ícone indicado no próprio atalho, e arquivos `.ico` são lidos no tamanho máximo.
+- Links web mostram o ícone do navegador padrão em vez do desenho da dock.
 - O log crescia sem limite: agora gira em 1 MB e guarda só 3 cópias (no
   máximo ~4 MB). Eventos de passagem do mouse só entram com `MESADOCK_DEBUG=1`.
 - Imports e variáveis sem uso apontados pelo ruff.

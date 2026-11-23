@@ -428,3 +428,50 @@ def test_tray_window_proc_returns_a_pointer_sized_result():
     source = __import__("inspect").getsource(tray.TrayIcon._create_window)
     assert "c_ssize_t" in source
     assert "WINFUNCTYPE(ctypes.c_long" not in source
+
+
+def test_shortcut_with_its_own_icon_keeps_it(tmp_path, monkeypatch):
+    """Chrome/Edge web apps point at a proxy exe with a blank icon; the .ico the
+    shortcut names must win over the target, or the icon is lost once docked."""
+    import sys
+
+    from mesadock.core.models import DockItem
+    from mesadock.ui import images
+
+    lnk = tmp_path / "Busuu.lnk"
+    lnk.write_bytes(b"L")
+    ico = tmp_path / "Busuu.ico"
+    ico.write_bytes(b"ico")
+    item = DockItem(name="Busuu", kind="shortcut", path=str(lnk), target=sys.executable)
+
+    monkeypatch.setattr(images.shell, "shortcut_icon_location", lambda _p: (str(ico), 0))
+    assert images.item_source(item) == str(ico)
+
+    monkeypatch.setattr(images.shell, "shortcut_icon_location", lambda _p: (sys.executable, 3))
+    assert images.item_source(item) == str(lnk)  # non-zero index: Windows resolves it
+
+    monkeypatch.setattr(images.shell, "shortcut_icon_location", lambda _p: ("", 0))
+    assert images.item_source(item) == sys.executable  # no own icon: the target, no arrow
+
+
+def test_web_link_uses_the_browser_icon(monkeypatch):
+    from mesadock.core.models import DockItem
+    from mesadock.ui import images
+
+    item = DockItem(name="site", kind="url", target="https://example.com")
+    monkeypatch.setattr(images.shell, "default_browser_icon", lambda: r"C:\browser.exe")
+    assert images.item_source(item) == r"C:\browser.exe"
+    monkeypatch.setattr(images.shell, "default_browser_icon", lambda: "")
+    assert images.item_source(item) == "glyph:grid"
+
+
+def test_ico_files_are_read_at_full_size(tmp_path, home):
+    from PIL import Image
+
+    from mesadock.ui.images import ImageCache
+
+    source = tmp_path / "app.ico"
+    Image.new("RGBA", (128, 128), (30, 120, 220, 255)).save(source, sizes=[(128, 128), (32, 32)])
+    rendered = ImageCache(cache_dir=tmp_path / "cache")._render(str(source), 64)
+    assert rendered.size == (64, 64)
+    assert rendered.getpixel((32, 32))[:3] == (30, 120, 220)

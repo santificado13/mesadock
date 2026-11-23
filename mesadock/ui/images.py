@@ -68,6 +68,14 @@ class ImageCache:
             return icon_art.dock_icon(source.split(":", 1)[1], size, item_count=0)
         path = source
         if path and Path(path).exists():
+            if path.lower().endswith(".ico"):
+                # Pillow opens an .ico at its largest size, sharper than asking
+                # Windows for the shell icon of the file.
+                try:
+                    with Image.open(path) as opened:
+                        return opened.convert("RGBA").resize((size, size), Image.LANCZOS)
+                except (OSError, ValueError):
+                    pass
             if shell.is_image(path) and not path.lower().endswith(".ico"):
                 try:
                     with Image.open(path) as opened:
@@ -124,9 +132,22 @@ def item_source(item) -> str:
     """Which file the icon of an item should be read from."""
     if getattr(item, "icon", ""):
         return item.icon
+    path = getattr(item, "path", "") or ""
     if getattr(item, "kind", "") == "url":
-        return "glyph:grid"
-    # Prefer target executable over .lnk to avoid Windows shortcut arrow overlay
+        # A web link shows the default browser's icon: the dock glyph made it look
+        # like a nested dock, and Windows often gives a .url file a blank page.
+        return shell.default_browser_icon() or "glyph:grid"
+    # A shortcut that names its own icon keeps it. Web apps installed by Chrome or
+    # Edge point at a proxy exe with a blank icon, and their artwork lives in that
+    # .ico; reading the exe instead lost the icon once the shortcut was docked.
+    if path.lower().endswith(".lnk") and Path(path).exists():
+        icon, index = shell.shortcut_icon_location(path)
+        if icon:
+            if icon.lower().endswith(".ico") or index == 0:
+                return icon
+            return path  # icon at another index of an exe/dll: let Windows resolve it
+    # Otherwise prefer the target executable over the .lnk, which avoids the
+    # shortcut arrow overlay.
     if getattr(item, "target", "") and Path(item.target).exists():
         return item.target
     if getattr(item, "path", "") and Path(item.path).exists():
