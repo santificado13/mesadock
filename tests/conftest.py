@@ -19,13 +19,18 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
-def _retry_flaky_tk_init() -> None:
-    """Retry Tk() when Tcl fails to initialise with "tcl_findLibrary".
+# Messages of the same flaky Tcl/Tk start-up failure seen on GitHub's runners.
+_FLAKY_TK_INIT = ("tcl_findLibrary", "usable tk.tcl", "usable init.tcl")
 
-    On GitHub's Windows runners, creating many Tk roots in one test run now and
-    then fails inside Tk's own startup script with 'invalid command name
-    "tcl_findLibrary"'. It is an environment race, not a MesaDock bug (the app
-    creates a single root), so the tests retry that one error and nothing else.
+
+def _retry_flaky_tk_init() -> None:
+    """Retry Tk() when Tcl fails to load its own start-up scripts.
+
+    On GitHub's Windows runners (seen with Python 3.12), creating many Tk roots
+    in one test run now and then fails inside Tk's initialisation with
+    'invalid command name "tcl_findLibrary"' or "Can't find a usable tk.tcl".
+    It is an environment race, not a MesaDock bug (the app creates a single
+    root), so the tests retry those errors and nothing else.
     """
     try:
         import tkinter
@@ -38,14 +43,14 @@ def _retry_flaky_tk_init() -> None:
         _mesadock_retry = True
 
         def __init__(self, *args, **kwargs):
-            for attempt in range(3):
+            for attempt in range(5):
                 try:
                     super().__init__(*args, **kwargs)
                     return
                 except tkinter.TclError as exc:
-                    if "tcl_findLibrary" not in str(exc) or attempt == 2:
+                    if not any(text in str(exc) for text in _FLAKY_TK_INIT) or attempt == 4:
                         raise
-                    time.sleep(0.3)
+                    time.sleep(0.5)
 
     tkinter.Tk = _RetryingTk
 
