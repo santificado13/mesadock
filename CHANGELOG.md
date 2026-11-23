@@ -10,6 +10,11 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
 - CI no GitHub Actions: lint (ruff) e testes no Windows com Python 3.12 e 3.14
   a cada envio; em tags `v*` o exe é gerado e anexado como artefato.
 
+- O log registra como o MesaDock foi fechado: "Quit requested: <origem>"
+  (menu da bandeja, botão do Gerenciador, janela principal), fim de sessão do
+  Windows, "MesaDock exited normally" e "Process exiting" ao final. Um log que
+  termina sem essas linhas indica que o processo foi encerrado de fora.
+
 ### Corrigido
 - Imports e variáveis sem uso apontados pelo ruff.
 

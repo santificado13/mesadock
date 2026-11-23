@@ -109,7 +109,7 @@ class MesaDockApp:
         self.watch_monitors()
         if not (self.store.settings.start_minimized if minimized is None else minimized):
             self.open_manager()
-        self.root.protocol("WM_DELETE_WINDOW", self.quit)
+        self.root.protocol("WM_DELETE_WINDOW", lambda: self.quit("main window closed"))
         self.root.bind_all("<Control-Shift-M>", lambda _e: self.open_manager())
         self.root.bind_all("<Control-Shift-D>", lambda _e: self.add_dock(tr("New dock"), "grid"))
         # Escape has to reach the app level, not just the panel widget: with a ring
@@ -181,7 +181,15 @@ class MesaDockApp:
         except Exception:
             return ()
 
-    def quit(self) -> None:
+    def quit(self, reason: str = "unspecified") -> None:
+        """Close every window and stop the app.
+
+        ``reason`` goes to the log: when the docks vanished there was no way to
+        tell a click on Quit from a crash or a Windows logoff.
+        """
+        if not self._running:
+            return
+        logging.getLogger("mesadock").info("Quit requested: %s", reason)
         self._running = False
         try:
             self.save()

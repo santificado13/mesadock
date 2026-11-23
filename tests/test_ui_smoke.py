@@ -434,3 +434,14 @@ def test_hover_does_not_open_panels_in_click_mode(home, tk_available):
         assert app._opens_on_hover() is False
     finally:
         app.quit()
+
+
+def test_quit_logs_the_reason_once(home, tk_available, caplog):
+    import logging
+
+    app, _folder = _make_app(home, tk_available)
+    with caplog.at_level(logging.INFO, logger="mesadock"):
+        app.quit("tray menu > Quit")
+        app.quit("second call")
+    reasons = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Quit requested")]
+    assert reasons == ["Quit requested: tray menu > Quit"]

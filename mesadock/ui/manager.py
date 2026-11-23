@@ -835,7 +835,7 @@ class ManagerWindow:
         danger = tk.Frame(tab, bg=theme.BG_ELEVATED)
         danger.pack(anchor="w", padx=18, pady=(26, 0))
         ttk.Button(danger, text=tr("Quit MesaDock"), style="Danger.TButton",
-                   command=self.app.quit).pack(side="left")
+                   command=lambda: self.app.quit("Manager > About > Quit button")).pack(side="left")
 
     def _apply_settings(self) -> None:
         if not getattr(self, "_settings_ready", True):

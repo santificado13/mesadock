@@ -81,6 +81,14 @@ def run_app(show_manager: bool = False) -> int:
         pass
     log = logging.getLogger("mesadock")
 
+    # Last line of every run, however it ends without a native crash: a log that
+    # stops with no "Process exiting" means the process was killed from outside
+    # (Task Manager, taskkill) or died in native code (see the .faulthandler file).
+    import atexit
+
+    atexit.register(lambda: log.info("Process exiting (pid %s)", os.getpid()))
+    log.info("MesaDock starting (pid %s)", os.getpid())
+
     from .win32 import dpi
 
     mode = dpi.enable_per_monitor_v2()
@@ -105,6 +113,7 @@ def run_app(show_manager: bool = False) -> int:
         if os.environ.get("MESADOCK_SELFTEST_ADD"):
             _schedule_add_selftest(app, log)
         app.root.mainloop()
+        log.info("MesaDock exited normally")
         return 0
     except Exception:
         log.error("MesaDock stopped unexpectedly:\n%s", traceback.format_exc())

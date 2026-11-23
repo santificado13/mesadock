@@ -319,6 +319,15 @@ class TrayIcon:
             if msg == WM_SHOW_MANAGER:
                 self._call_in_tk(self.app.open_manager)
                 return 0
+            if msg == 0x0011:  # WM_QUERYENDSESSION
+                import logging
+                logging.getLogger("mesadock").info("Windows is ending the session (logoff, restart or shutdown)")
+                self._call_in_tk(self.app.save)
+                return 1
+            if msg == 0x0016 and wparam:  # WM_ENDSESSION, session really ends
+                import logging
+                logging.getLogger("mesadock").info("Session ended by Windows; MesaDock closes with it")
+                return 0
             if msg == 0x0010:  # WM_CLOSE
                 ctypes.windll.user32.DestroyWindow(hwnd)
                 return 0
@@ -356,7 +365,7 @@ class TrayIcon:
                                      command=lambda i=index: self.app.switch_profile(i))
             menu.add_cascade(label=tr("Profile"), menu=profiles)
             menu.add_separator()
-            menu.add_command(label=tr("Quit MesaDock"), command=self.app.quit)
+            menu.add_command(label=tr("Quit MesaDock"), command=lambda: self.app.quit("tray menu > Quit"))
             x, y = self.app.root.winfo_pointerxy()
             menu.tk_popup(x, y)
         except tk.TclError:
