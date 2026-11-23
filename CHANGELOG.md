@@ -6,6 +6,11 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
 
 ## [Não lançado]
 
+### Alterado
+- **Ícone novo do aplicativo:** grade 2x2 colorida sobre vidro escuro, com fundo
+  transparente e 10 tamanhos (16 a 256 px). O fonte vetorial está em
+  `docs/brand/mesadock-icon.svg`. Saíram do pacote as artes antigas sem uso.
+
 ### Adicionado
 - **Regras automáticas:** cada dock tem um campo Regras (ex.: `*.pdf, relatorio*`).
   Itens novos na área de trabalho com nome que combina entram sozinhos na dock.
