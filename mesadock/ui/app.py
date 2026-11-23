@@ -226,11 +226,23 @@ class MesaDockApp:
             self.manager.close()
         if self.tray is not None:
             self.tray.stop()
+        if self.search is not None:
+            self.search.close()
+        # The watcher thread must be gone before Tk is torn down, and what Tk
+        # leaves behind must be collected here, on Tk's own thread. Otherwise the
+        # garbage collector can run on the watcher thread, free Tcl objects from
+        # the wrong thread, and Tcl aborts the whole process.
+        worker = self._portal_thread
+        if worker is not None and worker.is_alive():
+            worker.join(timeout=2.0)
         try:
             self.root.quit()
             self.root.destroy()
         except tk.TclError:
             pass
+        import gc
+
+        gc.collect()
 
     # -- persistence -------------------------------------------------------
     def touch(self) -> None:
