@@ -934,7 +934,7 @@ class ManagerWindow:
         for value, label in (("move", "Move originals into the archive"), ("copy", "Keep originals where they are")):
             ttk.Radiobutton(behaviour, text=tr(label), value=value, variable=self.archive_var,
                             style="Card.TRadiobutton", command=self._apply_settings).pack(anchor="w", pady=2)
-        ttk.Checkbutton(behaviour, text=tr("Snap docks to the desktop icon grid"), variable=self.snap_var,
+        ttk.Checkbutton(behaviour, text=tr("Align docks when moving them (fine grid)"), variable=self.snap_var,
                         style="Card.TCheckbutton", command=self._apply_settings).pack(anchor="w", pady=(8, 2))
         ttk.Checkbutton(behaviour, text=tr("Double-click the desktop to hide or show the docks"),
                         variable=self.hide_dblclick_var, style="Card.TCheckbutton",

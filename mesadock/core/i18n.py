@@ -39,7 +39,7 @@ _PT = {
     "Hover delay (ms)": "Atraso do hover (ms)",
     "Panel theme": "Tema do painel",
     "Show item names under icons": "Mostrar nomes sob os ícones",
-    "Snap docks to the desktop icon grid": "Encaixar docks na grade do desktop",
+    "Align docks when moving them (fine grid)": "Alinhar as docks ao mover (grade fina)",
     "Animate panels": "Animar painéis",
     "Start MesaDock when I sign in": "Iniciar o MesaDock ao entrar",
     "Start minimised (docks only)": "Iniciar minimizado (só docks)",

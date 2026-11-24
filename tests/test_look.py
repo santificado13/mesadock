@@ -467,3 +467,56 @@ def test_glyph_source_accepts_an_empty_accent_and_an_opacity():
     spot = (10, 32)  # bare glass, left of the glyph
     assert solid.getpixel(spot)[3] > 230 and 70 <= faint.getpixel(spot)[3] <= 110
     assert faint.getpixel((32, 1))[3] > 150, "the border does not fade with the glass"
+
+
+def test_docks_move_almost_freely_and_tiles_line_up(home, tk_available, monkeypatch):
+    """Snapping to the 76x96 desktop icon cell overlapped large docks or pushed
+    them a whole cell apart. Docks must be placeable side by side, with tiles
+    aligned even when their names have different widths."""
+    from mesadock.core.store import Store
+    from mesadock.ui import dockwindow
+    from mesadock.ui.app import MesaDockApp
+    from mesadock.win32.monitors import Monitor
+
+    store = Store()
+    store.profiles[0].folders = [
+        DockFolder(name="IA", icon_size=88, position=(100, 100)),
+        DockFolder(name="SISTEMA_ENERGIA_SOLAR", icon_size=88, position=(400, 100)),
+    ]
+    store.save()
+    app = MesaDockApp(store=store)
+    app.background_watch = False
+    app.start(minimized=True)
+    try:
+        # a monitor above and to the left of the primary, as on a two-screen desk
+        screen = Monitor(1, (-1920, -1440, 2560, 1440), (-1920, -1440, 2560, 1400), 1.0, False)
+        monkeypatch.setattr(app, "monitor_for", lambda _point: screen)
+        short, long = (app.docks[f.id] for f in store.folders)
+
+        def tile_centre(dock):
+            x, y = dock.folder.position
+            return x + dock._dock_width() // 2, y + dock._pixel_size() // 2
+
+        for dock in (short, long):                     # never moved further than half a step
+            for wanted in ((-900, -1200), (-853, -1111), (-701, -907)):
+                dock.move_to(*wanted)
+                got = dock.folder.position
+                assert all(abs(g - w) <= dockwindow.SNAP_STEP // 2 + 1 for g, w in zip(got, wanted)), (wanted, got)
+
+        # dropped a few pixels off the same column: the tiles end up in line
+        short.move_to(-600 - short._dock_width() // 2 + 4, -1200)
+        long.move_to(-600 - long._dock_width() // 2 - 3, -1000)
+        assert tile_centre(short)[0] == tile_centre(long)[0]
+
+        # two large docks fit side by side: no overlap, no empty cell between
+        short.move_to(-900, -1200)
+        other = short.folder.position[0] + short._dock_width() + 8
+        long.move_to(other, -1200)
+        gap = long.folder.position[0] - (short.folder.position[0] + short._dock_width())
+        assert 0 <= gap <= 20
+
+        app.store.settings.snap_to_grid = False        # unticked: exactly where it was dropped
+        short.move_to(-853, -1111)
+        assert short.folder.position == (-853, -1111)
+    finally:
+        app.quit()

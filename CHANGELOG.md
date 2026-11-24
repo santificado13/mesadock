@@ -14,6 +14,9 @@ Todas as mudanças relevantes do MesaDock. Formato inspirado em
 - O zip da versão leva os dois READMEs.
 
 ### Corrigido
+- As docks eram puxadas para a grade de ícones do Windows (76x96), menor que uma
+  dock grande: ficavam sobrepostas ou longe demais. Agora o alinhamento é fino
+  (12 px), pelo centro do ícone, e pode ser desligado nas Configurações.
 - O painel fechava sozinho enquanto o menu de clique direito ou uma janela aberta
   a partir dele (nova aba, trocar ícone, confirmar remoção) estava na tela.
 - "Aba..." no Gerenciador abre a lista de abas e vale para vários itens de uma vez

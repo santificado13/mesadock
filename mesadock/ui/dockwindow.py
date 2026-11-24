@@ -14,6 +14,10 @@ from .images import ImageCache, folder_source, prepare_canvas
 
 ICON_PAD = 8
 DRAG_THRESHOLD = 5
+# Alignment step when a dock is dropped. The desktop icon cell (76x96 at 100 %)
+# is smaller than a large dock: snapping to it overlapped neighbours or left a
+# whole empty cell between them, with no position in between.
+SNAP_STEP = 12
 LABEL_PILL = "#121722"
 LABEL_PILL_HOVER = "#1b2333"
 DROP_GREEN = "#34d399"
@@ -80,9 +84,14 @@ class DockWindow:
 
     def move_to(self, x: int, y: int, snap: bool = True) -> None:
         if snap and self.app.store.settings.snap_to_grid:
-            monitor = self.app.monitor_for((x, y))
-            x, y = layout_mod.snap_to_grid(x, y, monitor.rect, self.app.icon_cell(monitor))
-            x, y = layout_mod.clamp_to_monitor((x, y, self._pixel_size(), self._pixel_size()), monitor.rect)
+            # Align the centre of the tile, not the window: the window is as wide as
+            # the name, so aligning its left edge left the tiles out of line.
+            width, size = self._dock_width(), self._pixel_size()
+            height = size + (self._label_height() if self._label_text() else 0)
+            monitor = self.app.monitor_for((int(x + width / 2), int(y + size / 2)))
+            step = max(4, int(round(SNAP_STEP * (getattr(monitor, "scale", 1.0) or 1.0))))
+            cx, cy = layout_mod.snap_to_grid(int(x + width / 2), int(y + size / 2), monitor.rect, (step, step))
+            x, y = layout_mod.clamp_to_monitor((cx - width // 2, cy - size // 2, width, height), monitor.rect)
         self.window.geometry("+" + str(int(x)) + "+" + str(int(y)))
         self.folder.position = (int(x), int(y))
         self.app.root.after(10, self._ensure_on_desktop)
